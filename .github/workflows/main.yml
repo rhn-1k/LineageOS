@@ -1,0 +1,101 @@
+name: Build LineageOS GSI with Crave.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      crave_token:
+        description: 'Crave.io Access Token'
+        required: true
+        type: string
+
+      build_username:
+        description: 'Custom username for the build'
+        required: true
+        default: 'rhnistuff'
+        type: string
+      
+      lineage_version:
+        description: 'LineageOS Version'
+        required: true
+        default: '22.2'
+        type: choice
+        options:
+          - '22.2'
+      
+      build_variant:
+        description: 'Build Variant (Vanilla or GMS)'
+        required: true
+        default: 'vanilla'
+        type: choice
+        options:
+          - 'vanilla'
+          - 'gms'
+
+jobs:
+  build-with-crave:
+    name: Trigger Crave.io Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Install Crave CLI
+        run: |
+          curl -sSL https://crave.io/install.sh | sudo bash
+
+      - name: Create build script for Crave
+        run: |
+          if [ "${{ github.event.inputs.build_variant }}" == "gms" ]; then
+            LUNCH_TARGET="treble_arm64_bgN-userdebug"
+          else
+            LUNCH_TARGET="treble_arm64_bvN-userdebug"
+          fi
+          
+          cat << EOF > crave-build.sh
+          #!/bin/bash
+          set -e
+
+          repo init -u https://github.com/LineageOS/android.git -b lineage-${{ github.event.inputs.lineage_version }} --git-lfs --depth=1
+          git clone https://github.com/MisterZtr/treble_manifest.git .repo/local_manifests -b 15-los-qpr2
+          repo sync --force-sync --optimized-fetch --no-tags --no-clone-bundle --prune -j\$(nproc --all)
+          
+          cp -r \$CRAVE_CHECKOUT_DIR/patches .
+          bash patches/apply-patches.sh .
+          
+          cd device/phh/treble
+          bash generate.sh lineage
+          cp \$CRAVE_CHECKOUT_DIR/treble_arm64_b*.mk .
+          cd ../../..
+          
+          source build/envsetup.sh
+          lunch ${LUNCH_TARGET}
+          
+          export BUILD_USERNAME="${{ github.event.inputs.build_username }}"
+          export BUILD_HOSTNAME="crave-ci"
+          
+          make systemimage -j\$(nproc --all)
+          
+          cd out/target/product/tdgsi_arm64_ab/
+          apt-get update && apt-get install -y liblz4-tool
+          lz4 -12 -k system.img system.img.lz4
+          EOF
+          
+          chmod +x crave-build.sh
+
+      - name: Run build on Crave.io
+        env:
+          CRAVE_ACCESS_TOKEN: ${{ github.event.inputs.crave_token }}
+        run: |
+          crave run \
+            --instance-type=c2-standard-64 \
+            --checkout=. \
+            --no-cache \
+            --output-dir=out/target/product/tdgsi_arm64_ab \
+            ./crave-build.sh
+
+      - name: Upload GSI Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: LineageOS-${{ github.event.inputs.lineage_version }}-${{ github.event.inputs.build_variant }}-GSI-crave
+          path: ./*/system.img.lz4
