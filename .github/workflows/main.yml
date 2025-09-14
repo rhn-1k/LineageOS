@@ -38,17 +38,11 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # --- ✨ التعديل الجديد هنا ✨ ---
-      - name: Install Crave CLI from direct link
+      - name: Install Crave CLI
         run: |
-          # تحميل الملف التنفيذي مباشرة
           curl -L -o crave.bin https://github.com/accupara/crave/releases/download/0.2-7161/crave-0.2-7161-linux-amd64.bin
-          # جعله قابلاً للتنفيذ
           chmod +x crave.bin
-          # نقله إلى مسار عام وتغيير اسمه إلى crave
           sudo mv crave.bin /usr/local/bin/crave
-          # التحقق من أن الأمر يعمل
-          crave --version
 
       - name: Create build script for Crave
         run: |
