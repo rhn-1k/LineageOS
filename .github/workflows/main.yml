@@ -8,6 +8,11 @@ on:
         required: true
         type: string
 
+      crave_project:
+        description: 'Your Crave.io project name (e.g., username/default)'
+        required: true
+        type: string
+
       build_username:
         description: 'Custom username for the build'
         required: true
@@ -38,7 +43,7 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Install Crave CLI
+      - name: Install Crave CLI (Direct & Confirmed Method)
         run: |
           curl -L -o crave.bin https://github.com/accupara/crave/releases/download/0.2-7161/crave-0.2-7161-linux-amd64.bin
           chmod +x crave.bin
@@ -55,27 +60,20 @@ jobs:
           cat << EOF > crave-build.sh
           #!/bin/bash
           set -e
-
           repo init -u https://github.com/LineageOS/android.git -b ${{ github.event.inputs.lineage_version }} --git-lfs --depth=1
           git clone https://github.com/MisterZtr/treble_manifest.git .repo/local_manifests -b 15-los-qpr2
           repo sync --force-sync --optimized-fetch --no-tags --no-clone-bundle --prune -j\$(nproc --all)
-          
           cp -r \$CRAVE_CHECKOUT_DIR/patches .
           bash patches/apply-patches.sh .
-          
           cd device/phh/treble
           bash generate.sh lineage
           cp \$CRAVE_CHECKOUT_DIR/treble_arm64_b*.mk .
           cd ../../..
-          
           source build/envsetup.sh
           lunch ${LUNCH_TARGET}
-          
           export BUILD_USERNAME="${{ github.event.inputs.build_username }}"
           export BUILD_HOSTNAME="crave-ci"
-          
           make systemimage -j\$(nproc --all)
-          
           cd out/target/product/tdgsi_arm64_ab/
           apt-get update && apt-get install -y liblz4-tool
           lz4 -12 -k system.img system.img.lz4
@@ -86,6 +84,7 @@ jobs:
       - name: Run build on Crave.io
         env:
           CRAVE_ACCESS_TOKEN: ${{ github.event.inputs.crave_token }}
+          CRAVE_PROJECT: ${{ github.event.inputs.crave_project }}
         run: |
           crave run \
             --instance-type=c2-standard-64 \
