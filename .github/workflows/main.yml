@@ -11,16 +11,14 @@ on:
       build_username:
         description: 'Custom username for the build'
         required: true
-        default: 'rhnistuff'
+        default: 'MisterZtr'
         type: string
       
       lineage_version:
-        description: 'LineageOS Version'
+        description: 'LineageOS branch name (e.g., lineage-22.2, lineage-21.0)'
         required: true
-        default: '22.2'
-        type: choice
-        options:
-          - '22.2'
+        default: 'lineage-22.2'
+        type: string
       
       build_variant:
         description: 'Build Variant (Vanilla or GMS)'
@@ -40,9 +38,17 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Install Crave CLI
+      # --- ✨ التعديل الجديد هنا ✨ ---
+      - name: Install Crave CLI from direct link
         run: |
-          curl -sSL https://crave.io/install.sh | sudo bash
+          # تحميل الملف التنفيذي مباشرة
+          curl -L -o crave.bin https://github.com/accupara/crave/releases/download/0.2-7161/crave-0.2-7161-linux-amd64.bin
+          # جعله قابلاً للتنفيذ
+          chmod +x crave.bin
+          # نقله إلى مسار عام وتغيير اسمه إلى crave
+          sudo mv crave.bin /usr/local/bin/crave
+          # التحقق من أن الأمر يعمل
+          crave --version
 
       - name: Create build script for Crave
         run: |
@@ -56,7 +62,7 @@ jobs:
           #!/bin/bash
           set -e
 
-          repo init -u https://github.com/LineageOS/android.git -b lineage-${{ github.event.inputs.lineage_version }} --git-lfs --depth=1
+          repo init -u https://github.com/LineageOS/android.git -b ${{ github.event.inputs.lineage_version }} --git-lfs --depth=1
           git clone https://github.com/MisterZtr/treble_manifest.git .repo/local_manifests -b 15-los-qpr2
           repo sync --force-sync --optimized-fetch --no-tags --no-clone-bundle --prune -j\$(nproc --all)
           
