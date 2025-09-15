@@ -1,4 +1,4 @@
-name: Samsung Firmware Checker (Smart-Switch Method)
+name: Samsung Firmware Checker (Smart-Switch Method v3)
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ on:
       region:
         description: 'Region Code / CSC (e.g., XSG, XXV, DBT)'
         required: true
-        default: 'EUX' # تم تغيير القيمة الافتراضية هنا
+        default: 'EUX'
 
 jobs:
   check-firmware:
@@ -23,14 +23,12 @@ jobs:
           MODEL="${{ github.event.inputs.model }}"
           REGION="${{ github.event.inputs.region }}"
           
-          NONCE_HEADER="Content-Type: application/xml;charset=UTF-8"
-          AUTH_HEADER="Authorization: FUS nonce=\"\", signature=\"\", t=\"\", type=\"\", version=\"\""
-          
           echo "Requesting firmware for ${MODEL}/${REGION}..."
           
+          # بناء الطلب وتمرير الترويسات مباشرة إلى curl لتجنب أخطاء bash
           response_xml=$(curl -s -k -X POST \
-            -H "${NONCE_HEADER}" \
-            -H "${AUTH_HEADER}" \
+            -H "Content-Type: application/xml;charset=UTF-8" \
+            -H "Authorization: FUS nonce="", signature="", t="", type="", version=""" \
             -d "<REQUEST><FUS><SERVICE><NAME>CHECK_FIRMWARE</NAME><VERSION>2.0</VERSION></SERVICE><CLIENT><TYPE>Smart Switch</TYPE><VERSION>4.3.24033_1</VERSION></CLIENT><DEVICE><MODEL_NAME>${MODEL}</MODEL_NAME><CSC>${REGION}</CSC></DEVICE></FUS></REQUEST>" \
             "https://neofussvr.ssl.samsung.com/NF_Download.do")
             
@@ -42,7 +40,6 @@ jobs:
           if [ "${STATUS}" != "200" ]; then
             ERROR_MESSAGE=$(echo "${response_xml}" | grep -oP '<MESSAGE>\K[^<]+')
             echo "Error from Samsung server: ${ERROR_MESSAGE}"
-            echo "url=" >> $GITHUB_OUTPUT
             exit 0
           fi
           
@@ -64,7 +61,6 @@ jobs:
             echo "filesize=${FILE_SIZE}" >> $GITHUB_OUTPUT
           else
             echo "No firmware found for ${MODEL}/${REGION}."
-            echo "url=" >> $GITHUB_OUTPUT
           fi
 
       - name: Download and Upload to GoFile
