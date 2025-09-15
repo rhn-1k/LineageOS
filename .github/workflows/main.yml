@@ -1,92 +1,38 @@
-name: Samsung Firmware Checker (Smart-Switch Method - Corrected)
+name: Deep Network Diagnostics
 
 on:
   workflow_dispatch:
-    inputs:
-      model:
-        description: 'Device Model (e.g., SM-A155F)'
-        required: true
-        default: 'SM-A155F'
-      region:
-        description: 'Region Code / CSC (e.g., XSG, EUX, DBT)'
-        required: true
-        default: 'EUX'
 
 jobs:
-  check-firmware:
+  network-test:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check for latest firmware using Smart-Switch method
-        id: check
+      - name: 1. Check DNS Resolution
         run: |
-          MODEL="${{ github.event.inputs.model }}"
-          REGION="${{ github.event.inputs.region }}"
+          echo "### Attempting to resolve neofussvr.samsung.com ###"
+          nslookup neofussvr.samsung.com
+          echo "-------------------------------------------------"
           
-          echo "Requesting firmware for ${MODEL}/${REGION}..."
-          
-          # استخدام علامات الاقتباس المفردة لتمرير الترويسات والبيانات بأمان
-          response_xml=$(curl -s -k -X POST \
-            -H 'Content-Type: application/xml;charset=UTF-8' \
-            -H 'Authorization: FUS nonce="", signature="", t="", type="", version=""' \
-            -d '<REQUEST><FUS><SERVICE><NAME>CHECK_FIRMWARE</NAME><VERSION>2.0</VERSION></SERVICE><CLIENT><TYPE>Smart Switch</TYPE><VERSION>4.3.24033_1</VERSION></CLIENT><DEVICE><MODEL_NAME>${{ github.event.inputs.model }}</MODEL_NAME><CSC>${{ github.event.inputs.region }}</CSC></DEVICE></FUS></REQUEST>' \
-            "https://neofussvr.samsung.com/NF_Download.do") # <-- تم تصحيح عنوان URL هنا
-            
-          echo "--- Server Response ---"
-          echo "${response_xml}"
-          echo "-----------------------"
-          
-          STATUS=$(echo "${response_xml}" | grep -oP '<STATUS>\K[^<]+')
-          if [ "${STATUS}" != "200" ]; then
-            ERROR_MESSAGE=$(echo "${response_xml}" | grep -oP '<MESSAGE>\K[^<]+')
-            echo "Error from Samsung server: ${ERROR_MESSAGE}"
-            exit 0
-          fi
-          
-          LATEST_VERSION=$(echo "${response_xml}" | grep -oP '<LATEST_VERSION>\K[^<]+')
-          FILE_NAME=$(echo "${response_xml}" | grep -oP '<FILE_NAME>\K[^<]+')
-          FILE_SIZE=$(echo "${response_xml}" | grep -oP '<FILE_SIZE>\K[^<]+')
-          
-          if [ -n "${LATEST_VERSION}" ] && [ -n "${FILE_NAME}" ]; then
-            DOWNLOAD_URL="http://fus.samsung.com/firmware/${FILE_NAME}"
-            
-            echo "Firmware found!"
-            echo "Version: ${LATEST_VERSION}"
-            echo "File Name: ${FILE_NAME}"
-            echo "File Size: ${FILE_SIZE} bytes"
-            echo "Download URL: ${DOWNLOAD_URL}"
-            
-            echo "url=${DOWNLOAD_URL}" >> $GITHUB_OUTPUT
-            echo "filename=${FILE_NAME}" >> $GITHUB_OUTPUT
-            echo "filesize=${FILE_SIZE}" >> $GITHUB_OUTPUT
-          else
-            echo "No firmware found for ${MODEL}/${REGION}."
-          fi
+          echo "### Attempting to resolve fus.samsung.com ###"
+          nslookup fus.samsung.com
+          echo "-------------------------------------------------"
 
-      - name: Download and Upload to GoFile
-        if: steps.check.outputs.url != ''
+      - name: 2. Check Network Path (Traceroute)
         run: |
-          echo "Downloading ${{ steps.check.outputs.filename }}..."
-          wget -O "${{ steps.check.outputs.filename }}" "${{ steps.check.outputs.url }}"
-          sync
+          echo "### Tracing route to neofussvr.samsung.com ###"
+          # We need to install traceroute first
+          sudo apt-get update && sudo apt-get install -y traceroute
+          traceroute neofussvr.samsung.com
+          echo "-------------------------------------------------"
+
+      - name: 3. Test Basic Curl Connection (No Data)
+        run: |
+          echo "### Attempting a simple curl request with extreme verbosity ###"
+          # This command only tries to connect and prints everything.
+          curl --verbose --head "https://neofussvr.samsung.com/NF_Download.do"
+          echo "-------------------------------------------------"
           
-          echo "Download complete. Verifying size..."
-          DOWNLOADED_SIZE=$(stat -c%s "${{ steps.check.outputs.filename }}")
-          EXPECTED_SIZE="${{ steps.check.outputs.filesize }}"
-          
-          if [ "$DOWNLOADED_SIZE" -ne "$EXPECTED_SIZE" ]; then
-            echo "Error: File size mismatch! Expected ${EXPECTED_SIZE}, but got ${DOWNLOADED_SIZE}."
-            exit 1
-          fi
-          
-          echo "Uploading to GoFile..."
-          response=$(curl -X POST \
-            -H "Authorization: Bearer lnVDBSuzPGzPzkA3je2EIKAqIccrW4ku" \
-            -F "file=@${{ steps.check.outputs.filename }}" \
-            https://upload.gofile.io/uploadfile)
-            
-          echo "========================================================"
-          echo "GoFile API Response: $response"
-          download_page=$(echo "$response" | grep -oP '"downloadPage":\s*"\K[^"]+')
-          echo "Your direct download page is: $download_page"
-          echo "========================================================"
+          echo "### Testing with the previous incorrect host to confirm the error ###"
+          # This should fail with exit code 6, to prove our theory.
+          curl --verbose "https://neofussvr.ssl.samsung.com" || echo "This failed as expected."
