@@ -1,4 +1,4 @@
-name: Samsung Firmware Update Checker (Source-Modified)
+name: Samsung Firmware Checker (Smart-Switch Method)
 
 on:
   workflow_dispatch:
@@ -13,71 +13,78 @@ on:
         default: 'XSG'
 
 jobs:
-  build-and-check:
+  check-firmware:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Setup .NET 8.0 SDK
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-
-      - name: Clone and Modify SamsungFumoClient
+      - name: Check for latest firmware using Smart-Switch method
+        id: check
         run: |
-          git clone https://github.com/timschneeb/SamsungFumoClient.git
-          cd SamsungFumoClient
+          MODEL="${{ github.event.inputs.model }}"
+          REGION="${{ github.event.inputs.region }}"
           
-          echo "### Modifying Program.cs to set device info ###"
-          sed -i 's/Model = "SM-R510"/Model = "${{ github.event.inputs.model }}"/' DemoClient/Program.cs
-          sed -i 's/CustomerCode = "KOO"/CustomerCode = "${{ github.event.inputs.region }}"/' DemoClient/Program.cs
-          echo "Program.cs modified."
-
-          echo "### Modifying OspHttpClient.cs to add modern headers ###"
-          # هذا الأمر سيجد السطر الذي ينشئ HttpClient ويضيف بعده أسطرًا لتعيين الترويسات الجديدة
-          sed -i '/_httpClient = new HttpClient(handler);/a \
-          _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Kies2.0_FUS");\
-          _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "*/*");\
-          _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept-Encoding", "gzip, deflate");' SamsungFumoClient/Network/OspHttpClient.cs
-          echo "OspHttpClient.cs modified."
-
-      - name: Run Firmware Check and Extract URL
-        id: firmware_check
-        working-directory: ./SamsungFumoClient
-        run: |
-          output=$(OPENSSL_CONF=openssl.custom dotnet run --project DemoClient)
-          echo "$output"
-          download_url=$(echo "$output" | grep -oP 'http://\S+?Key-Pair-Id=\S+?(?=<)' | head -n 1)
-          if [ -n "$download_url" ]; then
-            echo "Download URL found."
-            cleaned_url=$(echo "$download_url" | sed 's/&amp;/\&/g')
-            echo "url=$cleaned_url" >> $GITHUB_OUTPUT
+          # بناء الطلب الذي يحاكي أداة Smart Switch
+          NONCE_HEADER="Content-Type:-application/xml;charset=UTF-8"
+          AUTH_HEADER="Authorization:--FUS nonce=\"\", signature=\"\", t=\"\", type=\"\", version=\"\""
+          
+          # إرسال الطلب إلى خادم سامسونج
+          response_xml=$(curl -s -k -X POST \
+            -H "$NONCE_HEADER" \
+            -H "$AUTH_HEADER" \
+            -d "<REQUEST><FUS><SERVICE><NAME>CHECK_FIRMWARE</NAME><VERSION>2.0</VERSION></SERVICE><CLIENT><TYPE>Smart Switch</TYPE><VERSION>4.3.24033_1</VERSION></CLIENT><DEVICE><MODEL_NAME>${MODEL}</MODEL_NAME><CSC>${REGION}</CSC></DEVICE></FUS></REQUEST>" \
+            "https://neofussvr.ssl.samsung.com/NF_Download.do")
+            
+          echo "--- Server Response ---"
+          echo "$response_xml"
+          echo "-----------------------"
+          
+          # استخراج المعلومات من استجابة XML
+          LATEST_VERSION=$(echo "$response_xml" | grep -oP '<LATEST_VERSION>\K[^<]+')
+          FILE_NAME=$(echo "$response_xml" | grep -oP '<FILE_NAME>\K[^<]+')
+          FILE_SIZE=$(echo "$response_xml" | grep -oP '<FILE_SIZE>\K[^<]+')
+          
+          if [ -n "$LATEST_VERSION" ] && [ -n "$FILE_NAME" ]; then
+            # بناء رابط التنزيل الكامل
+            DOWNLOAD_URL="http://fus.samsung.com/firmware/${FILE_NAME}"
+            
+            echo "Firmware found!"
+            echo "Version: $LATEST_VERSION"
+            echo "File Name: $FILE_NAME"
+            echo "File Size: $FILE_SIZE bytes"
+            echo "Download URL: $DOWNLOAD_URL"
+            
+            echo "url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
+            echo "filename=$FILE_NAME" >> $GITHUB_OUTPUT
+            echo "filesize=$FILE_SIZE" >> $GITHUB_OUTPUT
           else
-            echo "Download URL not found."
+            echo "No firmware found for ${MODEL}/${REGION}."
             echo "url=" >> $GITHUB_OUTPUT
           fi
 
-      - name: Download Firmware and Upload to GoFile
-        if: steps.firmware_check.outputs.url != ''
+      - name: Download and Upload to GoFile
+        if: steps.check.outputs.url != ''
         run: |
-          echo "Downloading firmware from temporary URL using enhanced wget..."
-          wget --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" \
-               --no-cache --no-cookies --timeout=180 -O firmware.bin "${{ steps.firmware_check.outputs.url }}"
+          echo "Downloading ${_FILENAME_}..."
+          wget -O "${{ steps.check.outputs.filename }}" "${{ steps.check.outputs.url }}"
           sync
-          file_size=$(stat -c%s "firmware.bin")
-          if [ "$file_size" -lt 1000000 ]; then
-            echo "Error: Downloaded file is too small ($file_size bytes). It might be a corrupted or an error file."
+          
+          echo "Download complete. Verifying size..."
+          DOWNLOADED_SIZE=$(stat -c%s "${{ steps.check.outputs.filename }}")
+          EXPECTED_SIZE="${{ steps.check.outputs.filesize }}"
+          
+          if [ "$DOWNLOADED_SIZE" -ne "$EXPECTED_SIZE" ]; then
+            echo "Error: File size mismatch! Expected ${EXPECTED_SIZE}, but got ${DOWNLOADED_SIZE}."
             exit 1
           fi
-          echo "Download complete. File size: $(ls -lh firmware.bin)"
-          echo "Uploading firmware.bin to GoFile via API..."
+          
+          echo "Uploading to GoFile..."
           response=$(curl -X POST \
             -H "Authorization: Bearer lnVDBSuzPGzPzkA3je2EIKAqIccrW4ku" \
-            -F "file=@firmware.bin" \
+            -F "file=@${{ steps.check.outputs.filename }}" \
             https://upload.gofile.io/uploadfile)
+            
           echo "========================================================"
-          echo "GoFile API Response:"
-          echo "$response"
-          echo "========================================================"
+          echo "GoFile API Response: $response"
           download_page=$(echo "$response" | grep -oP '"downloadPage":\s*"\K[^"]+')
           echo "Your direct download page is: $download_page"
           echo "========================================================"
