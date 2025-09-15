@@ -10,7 +10,7 @@ on:
       region:
         description: 'Region Code / CSC (e.g., XSG, XXV, DBT)'
         required: true
-        default: 'XSG'
+        default: 'EUX' # تم تغيير القيمة الافتراضية هنا
 
 jobs:
   check-firmware:
@@ -23,39 +23,45 @@ jobs:
           MODEL="${{ github.event.inputs.model }}"
           REGION="${{ github.event.inputs.region }}"
           
-          # بناء الطلب الذي يحاكي أداة Smart Switch
-          NONCE_HEADER="Content-Type:-application/xml;charset=UTF-8"
-          AUTH_HEADER="Authorization:--FUS nonce=\"\", signature=\"\", t=\"\", type=\"\", version=\"\""
+          NONCE_HEADER="Content-Type: application/xml;charset=UTF-8"
+          AUTH_HEADER="Authorization: FUS nonce=\"\", signature=\"\", t=\"\", type=\"\", version=\"\""
           
-          # إرسال الطلب إلى خادم سامسونج
+          echo "Requesting firmware for ${MODEL}/${REGION}..."
+          
           response_xml=$(curl -s -k -X POST \
-            -H "$NONCE_HEADER" \
-            -H "$AUTH_HEADER" \
+            -H "${NONCE_HEADER}" \
+            -H "${AUTH_HEADER}" \
             -d "<REQUEST><FUS><SERVICE><NAME>CHECK_FIRMWARE</NAME><VERSION>2.0</VERSION></SERVICE><CLIENT><TYPE>Smart Switch</TYPE><VERSION>4.3.24033_1</VERSION></CLIENT><DEVICE><MODEL_NAME>${MODEL}</MODEL_NAME><CSC>${REGION}</CSC></DEVICE></FUS></REQUEST>" \
             "https://neofussvr.ssl.samsung.com/NF_Download.do")
             
           echo "--- Server Response ---"
-          echo "$response_xml"
+          echo "${response_xml}"
           echo "-----------------------"
           
-          # استخراج المعلومات من استجابة XML
-          LATEST_VERSION=$(echo "$response_xml" | grep -oP '<LATEST_VERSION>\K[^<]+')
-          FILE_NAME=$(echo "$response_xml" | grep -oP '<FILE_NAME>\K[^<]+')
-          FILE_SIZE=$(echo "$response_xml" | grep -oP '<FILE_SIZE>\K[^<]+')
+          STATUS=$(echo "${response_xml}" | grep -oP '<STATUS>\K[^<]+')
+          if [ "${STATUS}" != "200" ]; then
+            ERROR_MESSAGE=$(echo "${response_xml}" | grep -oP '<MESSAGE>\K[^<]+')
+            echo "Error from Samsung server: ${ERROR_MESSAGE}"
+            echo "url=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
           
-          if [ -n "$LATEST_VERSION" ] && [ -n "$FILE_NAME" ]; then
-            # بناء رابط التنزيل الكامل
+          LATEST_VERSION=$(echo "${response_xml}" | grep -oP '<LATEST_VERSION>\K[^<]+')
+          FILE_NAME=$(echo "${response_xml}" | grep -oP '<FILE_NAME>\K[^<]+')
+          FILE_SIZE=$(echo "${response_xml}" | grep -oP '<FILE_SIZE>\K[^<]+')
+          
+          if [ -n "${LATEST_VERSION}" ] && [ -n "${FILE_NAME}" ]; then
             DOWNLOAD_URL="http://fus.samsung.com/firmware/${FILE_NAME}"
             
             echo "Firmware found!"
-            echo "Version: $LATEST_VERSION"
-            echo "File Name: $FILE_NAME"
-            echo "File Size: $FILE_SIZE bytes"
-            echo "Download URL: $DOWNLOAD_URL"
+            echo "Version: ${LATEST_VERSION}"
+            echo "File Name: ${FILE_NAME}"
+            echo "File Size: ${FILE_SIZE} bytes"
+            echo "Download URL: ${DOWNLOAD_URL}"
             
-            echo "url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
-            echo "filename=$FILE_NAME" >> $GITHUB_OUTPUT
-            echo "filesize=$FILE_SIZE" >> $GITHUB_OUTPUT
+            echo "url=${DOWNLOAD_URL}" >> $GITHUB_OUTPUT
+            echo "filename=${FILE_NAME}" >> $GITHUB_OUTPUT
+            echo "filesize=${FILE_SIZE}" >> $GITHUB_OUTPUT
           else
             echo "No firmware found for ${MODEL}/${REGION}."
             echo "url=" >> $GITHUB_OUTPUT
@@ -64,7 +70,7 @@ jobs:
       - name: Download and Upload to GoFile
         if: steps.check.outputs.url != ''
         run: |
-          echo "Downloading ${_FILENAME_}..."
+          echo "Downloading ${{ steps.check.outputs.filename }}..."
           wget -O "${{ steps.check.outputs.filename }}" "${{ steps.check.outputs.url }}"
           sync
           
