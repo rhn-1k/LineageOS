@@ -1,4 +1,4 @@
-name: Samsung Firmware Update Checker
+name: Samsung Firmware Update Checker with GoFile API Upload
 
 on:
   workflow_dispatch:
@@ -11,12 +11,9 @@ on:
         description: 'Region Code / CSC (e.g., EUX, XSG, DBT)'
         required: true
         default: 'EUX'
-  
-  schedule:
-    - cron: '0 0 * * *'
 
 jobs:
-  check-for-update:
+  check-and-upload:
     runs-on: ubuntu-latest
 
     steps:
@@ -32,13 +29,44 @@ jobs:
           path: 'SamsungFumoClient'
 
       - name: Run Firmware Check
+        id: firmware_check
         working-directory: ./SamsungFumoClient
         run: |
+          output=$(OPENSSL_CONF=openssl.custom dotnet run --project DemoClient -- --model ${{ github.event.inputs.model }} --region ${{ github.event.inputs.region }})
+          echo "$output"
+          download_url=$(echo "$output" | grep -oP 'http://\S+?\.bin\?\S+' | head -n 1)
+          if [ -n "$download_url" ]; then
+            echo "Download URL found."
+            echo "url=$download_url" >> $GITHUB_OUTPUT
+          else
+            echo "Download URL not found."
+            echo "url=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download Firmware and Upload to GoFile
+        if: steps.firmware_check.outputs.url != ''
+        run: |
+          # الخطوة 1: تنزيل ملف التحديث
+          echo "Downloading firmware from temporary URL..."
+          wget -O firmware.bin "${{ steps.firmware_check.outputs.url }}"
+          echo "Download complete. File size: $(ls -lh firmware.bin)"
+
+          # الخطوة 2: رفع الملف إلى GoFile باستخدام API و curl
+          echo "Uploading firmware.bin to GoFile via API..."
+          
+          # إرسال طلب الرفع مع التوكن والملف
+          response=$(curl -X POST \
+            -H "Authorization: Bearer lnVDBSuzPGzPzkA3je2EIKAqIccrW4ku" \
+            -F "file=@firmware.bin" \
+            https://upload.gofile.io/uploadfile)
+            
+          # طباعة استجابة الخادم التي تحتوي على رابط التنزيل
           echo "========================================================"
-          echo "Checking for firmware update..."
-          echo "Model: ${{ github.event.inputs.model || 'SM-A155F' }}"
-          echo "Region: ${{ github.event.inputs.region || 'EUX' }}"
+          echo "GoFile API Response:"
+          echo "$response"
           echo "========================================================"
           
-          OPENSSL_CONF=openssl.custom dotnet run --project DemoClient -- --model ${{ github.event.inputs.model || 'SM-A155F' }} --region ${{ github.event.inputs.region || 'EUX' }}
-
+          # استخراج رابط التنزيل من استجابة JSON وعرضه بوضوح
+          download_page=$(echo "$response" | grep -oP '"downloadPage":\s*"\K[^"]+')
+          echo "Your direct download page is: $download_page"
+          echo "========================================================"
