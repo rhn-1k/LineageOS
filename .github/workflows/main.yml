@@ -1,100 +1,44 @@
-name: Build LineageOS GSI with Crave.io
+name: Samsung Firmware Update Checker
 
 on:
   workflow_dispatch:
     inputs:
-      crave_token:
-        description: 'Crave.io Access Token'
+      model:
+        description: 'Device Model (e.g., SM-A155F)'
         required: true
-        type: string
-
-      crave_project:
-        description: 'Your Crave.io project name (e.g., username/default)'
+        default: 'SM-A155F'
+      region:
+        description: 'Region Code / CSC (e.g., EUX, XSG, DBT)'
         required: true
-        type: string
-
-      build_username:
-        description: 'Custom username for the build'
-        required: true
-        default: 'MisterZtr'
-        type: string
-      
-      lineage_version:
-        description: 'LineageOS branch name (e.g., lineage-22.2, lineage-21.0)'
-        required: true
-        default: 'lineage-22.2'
-        type: string
-      
-      build_variant:
-        description: 'Build Variant (Vanilla or GMS)'
-        required: true
-        default: 'vanilla'
-        type: choice
-        options:
-          - 'vanilla'
-          - 'gms'
+        default: 'EUX'
+  
+  schedule:
+    - cron: '0 0 * * *'
 
 jobs:
-  build-with-crave:
-    name: Trigger Crave.io Build
+  check-for-update:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
-
-      - name: Install Crave CLI (Direct & Confirmed Method)
-        run: |
-          curl -L -o crave.bin https://github.com/accupara/crave/releases/download/0.2-7161/crave-0.2-7161-linux-amd64.bin
-          chmod +x crave.bin
-          sudo mv crave.bin /usr/local/bin/crave
-
-      - name: Create build script for Crave
-        run: |
-          if [ "${{ github.event.inputs.build_variant }}" == "gms" ]; then
-            LUNCH_TARGET="treble_arm64_bgN-userdebug"
-          else
-            LUNCH_TARGET="treble_arm64_bvN-userdebug"
-          fi
-          
-          cat << EOF > crave-build.sh
-          #!/bin/bash
-          set -e
-          repo init -u https://github.com/LineageOS/android.git -b ${{ github.event.inputs.lineage_version }} --git-lfs --depth=1
-          git clone https://github.com/MisterZtr/treble_manifest.git .repo/local_manifests -b 15-los-qpr2
-          repo sync --force-sync --optimized-fetch --no-tags --no-clone-bundle --prune -j\$(nproc --all)
-          cp -r \$CRAVE_CHECKOUT_DIR/patches .
-          bash patches/apply-patches.sh .
-          cd device/phh/treble
-          bash generate.sh lineage
-          cp \$CRAVE_CHECKOUT_DIR/treble_arm64_b*.mk .
-          cd ../../..
-          source build/envsetup.sh
-          lunch ${LUNCH_TARGET}
-          export BUILD_USERNAME="${{ github.event.inputs.build_username }}"
-          export BUILD_HOSTNAME="crave-ci"
-          make systemimage -j\$(nproc --all)
-          cd out/target/product/tdgsi_arm64_ab/
-          apt-get update && apt-get install -y liblz4-tool
-          lz4 -12 -k system.img system.img.lz4
-          EOF
-          
-          chmod +x crave-build.sh
-
-      - name: Run build on Crave.io
-        env:
-          CRAVE_ACCESS_TOKEN: ${{ github.event.inputs.crave_token }}
-          CRAVE_PROJECT: ${{ github.event.inputs.crave_project }}
-        run: |
-          crave run \
-            --instance-type=c2-standard-64 \
-            --checkout=. \
-            --no-cache \
-            --output-dir=out/target/product/tdgsi_arm64_ab \
-            ./crave-build.sh
-
-      - name: Upload GSI Image
-        uses: actions/upload-artifact@v4
+      - name: Setup .NET 8.0 SDK
+        uses: actions/setup-dotnet@v4
         with:
-          name: LineageOS-${{ github.event.inputs.lineage_version }}-${{ github.event.inputs.build_variant }}-GSI-crave
-          path: ./*/system.img.lz4
+          dotnet-version: '8.0.x'
+
+      - name: Clone SamsungFumoClient repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'timschneeb/SamsungFumoClient'
+          path: 'SamsungFumoClient'
+
+      - name: Run Firmware Check
+        working-directory: ./SamsungFumoClient
+        run: |
+          echo "========================================================"
+          echo "Checking for firmware update..."
+          echo "Model: ${{ github.event.inputs.model || 'SM-A155F' }}"
+          echo "Region: ${{ github.event.inputs.region || 'EUX' }}"
+          echo "========================================================"
+          
+          OPENSSL_CONF=openssl.custom dotnet run --project DemoClient -- --model ${{ github.event.inputs.model || 'SM-A155F' }} --region ${{ github.event.inputs.region || 'EUX' }}
+
