@@ -8,9 +8,9 @@ on:
         required: true
         default: 'SM-A155F'
       region:
-        description: 'Region Code / CSC (e.g., EUX, XSG, DBT)'
+        description: 'Region Code / CSC (e.g., XSG, XXV, DBT)'
         required: true
-        default: 'EUX'
+        default: 'XSG'
 
 jobs:
   check-and-upload:
@@ -22,17 +22,22 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Clone SamsungFumoClient repository
-        uses: actions/checkout@v4
-        with:
-          repository: 'timschneeb/SamsungFumoClient'
-          path: 'SamsungFumoClient'
+      - name: Clone and Modify SamsungFumoClient
+        run: |
+          # استنساخ المستودع
+          git clone https://github.com/timschneeb/SamsungFumoClient.git
+          cd SamsungFumoClient
+          
+          # تعديل الكود المصدري لاستخدام المدخلات من سير العمل
+          echo "Modifying source code to use Model: ${{ github.event.inputs.model }} and Region: ${{ github.event.inputs.region }}"
+          sed -i 's/Model = "SM-R510"/Model = "${{ github.event.inputs.model }}"/' DemoClient/Program.cs
+          sed -i 's/CustomerCode = "KOO"/CustomerCode = "${{ github.event.inputs.region }}"/' DemoClient/Program.cs
 
       - name: Run Firmware Check and Extract URL
         id: firmware_check
         working-directory: ./SamsungFumoClient
         run: |
-          output=$(OPENSSL_CONF=openssl.custom dotnet run --project DemoClient -- --model ${{ github.event.inputs.model }} --region ${{ github.event.inputs.region }})
+          output=$(OPENSSL_CONF=openssl.custom dotnet run --project DemoClient)
           echo "$output"
           download_url=$(echo "$output" | grep -oP 'http://\S+?Key-Pair-Id=\S+?(?=<)' | head -n 1)
           if [ -n "$download_url" ]; then
@@ -48,32 +53,24 @@ jobs:
         if: steps.firmware_check.outputs.url != ''
         run: |
           echo "Downloading firmware from temporary URL using enhanced wget..."
-          
-          # استخدام أمر wget مع خيارات متقدمة لضمان تنزيل موثوق
           wget --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" \
-               --no-cache --no-cookies --timeout=60 -O firmware.bin "${{ steps.firmware_check.outputs.url }}"
-          
+               --no-cache --no-cookies --timeout=180 -O firmware.bin "${{ steps.firmware_check.outputs.url }}"
           sync
-          
-          file_size=$(ls -l firmware.bin | awk '{print $5}')
+          file_size=$(stat -c%s "firmware.bin")
           if [ "$file_size" -lt 1000000 ]; then
             echo "Error: Downloaded file is too small ($file_size bytes). It might be a corrupted or an error file."
             exit 1
           fi
-          
           echo "Download complete. File size: $(ls -lh firmware.bin)"
-
           echo "Uploading firmware.bin to GoFile via API..."
           response=$(curl -X POST \
             -H "Authorization: Bearer lnVDBSuzPGzPzkA3je2EIKAqIccrW4ku" \
             -F "file=@firmware.bin" \
             https://upload.gofile.io/uploadfile)
-            
           echo "========================================================"
           echo "GoFile API Response:"
           echo "$response"
           echo "========================================================"
-          
           download_page=$(echo "$response" | grep -oP '"downloadPage":\s*"\K[^"]+')
           echo "Your direct download page is: $download_page"
           echo "========================================================"
