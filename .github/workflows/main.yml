@@ -46,27 +46,27 @@ jobs:
       - name: Download Firmware and Upload to GoFile
         if: steps.firmware_check.outputs.url != ''
         run: |
-          # الخطوة 1: تنزيل ملف التحديث
+          # الخطوة 1: تنظيف الرابط
+          echo "Cleaning the download URL..."
+          cleaned_url=$(echo "${{ steps.firmware_check.outputs.url }}" | sed 's/&amp;/\&/g')
+          
+          # الخطوة 2: تنزيل ملف التحديث باستخدام الرابط النظيف
           echo "Downloading firmware from temporary URL..."
-          wget -O firmware.bin "${{ steps.firmware_check.outputs.url }}"
+          wget -O firmware.bin "$cleaned_url"
           echo "Download complete. File size: $(ls -lh firmware.bin)"
 
-          # الخطوة 2: رفع الملف إلى GoFile باستخدام API و curl
+          # الخطوة 3: رفع الملف إلى GoFile باستخدام API و curl
           echo "Uploading firmware.bin to GoFile via API..."
-          
-          # إرسال طلب الرفع مع التوكن والملف
           response=$(curl -X POST \
             -H "Authorization: Bearer lnVDBSuzPGzPzkA3je2EIKAqIccrW4ku" \
             -F "file=@firmware.bin" \
             https://upload.gofile.io/uploadfile)
             
-          # طباعة استجابة الخادم التي تحتوي على رابط التنزيل
           echo "========================================================"
           echo "GoFile API Response:"
           echo "$response"
           echo "========================================================"
           
-          # استخراج رابط التنزيل من استجابة JSON وعرضه بوضوح
           download_page=$(echo "$response" | grep -oP '"downloadPage":\s*"\K[^"]+')
           echo "Your direct download page is: $download_page"
           echo "========================================================"
