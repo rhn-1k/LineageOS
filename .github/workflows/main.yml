@@ -35,12 +35,10 @@ jobs:
           output=$(OPENSSL_CONF=openssl.custom dotnet run --project DemoClient -- --model ${{ github.event.inputs.model }} --region ${{ github.event.inputs.region }})
           echo "$output"
           
-          # تعبير grep أكثر دقة لاستخراج الرابط بشكل صحيح
           download_url=$(echo "$output" | grep -oP 'http://\S+?Key-Pair-Id=\S+?(?=<)' | head -n 1)
           
           if [ -n "$download_url" ]; then
             echo "Download URL found."
-            # تنظيف الرابط من رموز HTML
             cleaned_url=$(echo "$download_url" | sed 's/&amp;/\&/g')
             echo "url=$cleaned_url" >> $GITHUB_OUTPUT
           else
@@ -53,6 +51,10 @@ jobs:
         run: |
           echo "Downloading firmware from temporary URL..."
           wget -O firmware.bin "${{ steps.firmware_check.outputs.url }}"
+          
+          # التأكد من أن الملف تم كتابته بالكامل على القرص قبل المتابعة
+          sync
+          
           echo "Download complete. File size: $(ls -lh firmware.bin)"
 
           echo "Uploading firmware.bin to GoFile via API..."
