@@ -1,4 +1,4 @@
-name: Samsung Firmware Update Checker with GoFile API Upload
+name: Samsung Firmware Update Checker (Source-Modified)
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ on:
         default: 'XSG'
 
 jobs:
-  check-and-upload:
+  build-and-check:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,14 +24,21 @@ jobs:
 
       - name: Clone and Modify SamsungFumoClient
         run: |
-          # استنساخ المستودع
           git clone https://github.com/timschneeb/SamsungFumoClient.git
           cd SamsungFumoClient
           
-          # تعديل الكود المصدري لاستخدام المدخلات من سير العمل
-          echo "Modifying source code to use Model: ${{ github.event.inputs.model }} and Region: ${{ github.event.inputs.region }}"
+          echo "### Modifying Program.cs to set device info ###"
           sed -i 's/Model = "SM-R510"/Model = "${{ github.event.inputs.model }}"/' DemoClient/Program.cs
           sed -i 's/CustomerCode = "KOO"/CustomerCode = "${{ github.event.inputs.region }}"/' DemoClient/Program.cs
+          echo "Program.cs modified."
+
+          echo "### Modifying OspHttpClient.cs to add modern headers ###"
+          # هذا الأمر سيجد السطر الذي ينشئ HttpClient ويضيف بعده أسطرًا لتعيين الترويسات الجديدة
+          sed -i '/_httpClient = new HttpClient(handler);/a \
+          _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Kies2.0_FUS");\
+          _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "*/*");\
+          _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept-Encoding", "gzip, deflate");' SamsungFumoClient/Network/OspHttpClient.cs
+          echo "OspHttpClient.cs modified."
 
       - name: Run Firmware Check and Extract URL
         id: firmware_check
