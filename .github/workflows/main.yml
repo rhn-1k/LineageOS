@@ -28,16 +28,21 @@ jobs:
           repository: 'timschneeb/SamsungFumoClient'
           path: 'SamsungFumoClient'
 
-      - name: Run Firmware Check
+      - name: Run Firmware Check and Extract URL
         id: firmware_check
         working-directory: ./SamsungFumoClient
         run: |
           output=$(OPENSSL_CONF=openssl.custom dotnet run --project DemoClient -- --model ${{ github.event.inputs.model }} --region ${{ github.event.inputs.region }})
           echo "$output"
-          download_url=$(echo "$output" | grep -oP 'http://\S+?\.bin\?\S+' | head -n 1)
+          
+          # تعبير grep أكثر دقة لاستخراج الرابط بشكل صحيح
+          download_url=$(echo "$output" | grep -oP 'http://\S+?Key-Pair-Id=\S+?(?=<)' | head -n 1)
+          
           if [ -n "$download_url" ]; then
             echo "Download URL found."
-            echo "url=$download_url" >> $GITHUB_OUTPUT
+            # تنظيف الرابط من رموز HTML
+            cleaned_url=$(echo "$download_url" | sed 's/&amp;/\&/g')
+            echo "url=$cleaned_url" >> $GITHUB_OUTPUT
           else
             echo "Download URL not found."
             echo "url=" >> $GITHUB_OUTPUT
@@ -46,16 +51,10 @@ jobs:
       - name: Download Firmware and Upload to GoFile
         if: steps.firmware_check.outputs.url != ''
         run: |
-          # الخطوة 1: تنظيف الرابط
-          echo "Cleaning the download URL..."
-          cleaned_url=$(echo "${{ steps.firmware_check.outputs.url }}" | sed 's/&amp;/\&/g')
-          
-          # الخطوة 2: تنزيل ملف التحديث باستخدام الرابط النظيف
           echo "Downloading firmware from temporary URL..."
-          wget -O firmware.bin "$cleaned_url"
+          wget -O firmware.bin "${{ steps.firmware_check.outputs.url }}"
           echo "Download complete. File size: $(ls -lh firmware.bin)"
 
-          # الخطوة 3: رفع الملف إلى GoFile باستخدام API و curl
           echo "Uploading firmware.bin to GoFile via API..."
           response=$(curl -X POST \
             -H "Authorization: Bearer lnVDBSuzPGzPzkA3je2EIKAqIccrW4ku" \
