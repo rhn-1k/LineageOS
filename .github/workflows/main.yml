@@ -34,9 +34,7 @@ jobs:
         run: |
           output=$(OPENSSL_CONF=openssl.custom dotnet run --project DemoClient -- --model ${{ github.event.inputs.model }} --region ${{ github.event.inputs.region }})
           echo "$output"
-          
           download_url=$(echo "$output" | grep -oP 'http://\S+?Key-Pair-Id=\S+?(?=<)' | head -n 1)
-          
           if [ -n "$download_url" ]; then
             echo "Download URL found."
             cleaned_url=$(echo "$download_url" | sed 's/&amp;/\&/g')
@@ -49,11 +47,19 @@ jobs:
       - name: Download Firmware and Upload to GoFile
         if: steps.firmware_check.outputs.url != ''
         run: |
-          echo "Downloading firmware from temporary URL..."
-          wget -O firmware.bin "${{ steps.firmware_check.outputs.url }}"
+          echo "Downloading firmware from temporary URL using enhanced wget..."
           
-          # التأكد من أن الملف تم كتابته بالكامل على القرص قبل المتابعة
+          # استخدام أمر wget مع خيارات متقدمة لضمان تنزيل موثوق
+          wget --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" \
+               --no-cache --no-cookies --timeout=60 -O firmware.bin "${{ steps.firmware_check.outputs.url }}"
+          
           sync
+          
+          file_size=$(ls -l firmware.bin | awk '{print $5}')
+          if [ "$file_size" -lt 1000000 ]; then
+            echo "Error: Downloaded file is too small ($file_size bytes). It might be a corrupted or an error file."
+            exit 1
+          fi
           
           echo "Download complete. File size: $(ls -lh firmware.bin)"
 
