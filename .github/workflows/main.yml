@@ -1,8 +1,8 @@
 # --------------------------------------------------------------------
-# |  سير عمل نهائي (الطريقة اليدوية): بناء PixelOS GSI ورفعه         |
+# |  سير عمل نهائي (التثبيت الرسمي): بناء PixelOS GSI ورفعه         |
 # --------------------------------------------------------------------
 
-name: 'Build and Upload PixelOS GSI (Manual Setup)'
+name: 'Build and Upload PixelOS GSI (Official Install)'
 
 on:
   workflow_dispatch:
@@ -22,18 +22,18 @@ jobs:
     timeout-minutes: 480
 
     steps:
-      # --- *** الخطوة الجديدة: إعداد Crave CLI يدويًا *** ---
-      - name: 'Manually Setup Crave.io CLI'
+      # --- *** الخطوة الجديدة: التثبيت الرسمي لـ Crave CLI عبر APT *** ---
+      - name: 'Install Crave.io CLI via Official APT Repository'
         run: |
-          # 1. تنزيل أداة Crave CLI
-          echo "Downloading Crave CLI..."
-          curl -L "https://crave.io/api/v1/dl/crave-cli/linux-amd64" -o crave
+          # 1. إضافة مفتاح GPG الخاص بمستودع Crave
+          curl -sS https://crave.io/api/v1/gpg-key | sudo gpg --dearmor --yes -o /usr/share/keyrings/crave.gpg
           
-          # 2. جعلها قابلة للتنفيذ
-          chmod +x crave
+          # 2. إضافة مستودع Crave إلى مصادر APT
+          echo "deb [signed-by=/usr/share/keyrings/crave.gpg] https://crave.io/api/v1/apt ./" | sudo tee /etc/apt/sources.list.d/crave.list
           
-          # 3. نقلها إلى مسار النظام لسهولة الوصول
-          sudo mv crave /usr/local/bin/crave
+          # 3. تحديث قائمة الحزم وتثبيت Crave CLI
+          sudo apt-get update
+          sudo apt-get install -y crave-cli
           
           # 4. التحقق من التثبيت
           crave --version
@@ -47,7 +47,6 @@ jobs:
       - name: 'Run Build with Custom Default Setting'
         id: build_step
         run: |
-          # لم نعد بحاجة إلى crave login هنا لأنه تم في الخطوة السابقة
           crave run --no-cache-upload -- \
           bash -c "
             set -e
