@@ -1,12 +1,13 @@
 # --------------------------------------------------------------------
-# |  سير عمل نهائي (التثبيت الرسمي): بناء PixelOS GSI ورفعه         |
+# |  سير عمل صحيح مبني على نموذج المطورين مع استخدام المدخلات         |
 # --------------------------------------------------------------------
 
-name: 'Build and Upload PixelOS GSI (Official Install)'
+name: 'Build and Upload PixelOS GSI (Correct Workflow with Inputs)'
 
 on:
   workflow_dispatch:
     inputs:
+      # إعادة توكن Crave كمدخل كما طلبت
       crave_api_key:
         description: 'Your Crave.io API Key'
         required: true
@@ -16,43 +17,33 @@ on:
         default: 'pixelos_arm64_bgN_erofs-bp2a-userdebug'
 
 jobs:
-  build_and_upload:
-    name: 'Build & Upload PixelOS GSI'
+  build:
+    name: Build using foss.crave.io
     runs-on: ubuntu-latest
-    timeout-minutes: 480
-
     steps:
-      # --- *** الخطوة الجديدة: التثبيت الرسمي لـ Crave CLI عبر APT *** ---
-      - name: 'Install Crave.io CLI via Official APT Repository'
+      - name: Check-out to repository
+        uses: actions/checkout@v4
+
+      # هذه الخطوة تستخدم سكربت التثبيت الرسمي والمؤكد
+      - name: 'Install and Configure Crave.io CLI'
         run: |
-          # 1. إضافة مفتاح GPG الخاص بمستودع Crave
-          curl -sS https://crave.io/api/v1/gpg-key | sudo gpg --dearmor --yes -o /usr/share/keyrings/crave.gpg
-          
-          # 2. إضافة مستودع Crave إلى مصادر APT
-          echo "deb [signed-by=/usr/share/keyrings/crave.gpg] https://crave.io/api/v1/apt ./" | sudo tee /etc/apt/sources.list.d/crave.list
-          
-          # 3. تحديث قائمة الحزم وتثبيت Crave CLI
-          sudo apt-get update
-          sudo apt-get install -y crave-cli
-          
-          # 4. التحقق من التثبيت
+          echo "Running the official Crave.io install script..."
+          curl -sSL https://crave.io/install.sh | sudo bash
           crave --version
-          
-          # 5. تسجيل الدخول باستخدام التوكن
           echo "Logging into Crave.io..."
           crave login --token "${{ github.event.inputs.crave_api_key }}"
         
-      # --- *** نهاية الخطوة الجديدة *** ---
-
-      - name: 'Run Build with Custom Default Setting'
-        id: build_step
+      # الخطوة الرئيسية التي تنفذ كل شيء داخل بيئة Crave
+      - name: 'Run Full Build and Upload Process on Crave'
         run: |
-          crave run --no-cache-upload -- \
-          bash -c "
+          crave run --no-patch "
             set -e
+            
+            # تثبيت الأدوات اللازمة داخل بيئة crave
             sudo apt-get update && sudo apt-get install -y lz4
             
             echo '--- 1. Initializing & Syncing Sources ---'
+            # استخدام مسار العمل داخل بيئة crave
             mkdir -p ~/pixelos && cd ~/pixelos
             repo init --depth=1 -u https://github.com/PixelOS-AOSP/manifest.git -b sixteen --git-lfs
             git clone https://github.com/mytja/treble_manifest.git -b pixelos-sixteen .repo/local_manifests
@@ -82,31 +73,19 @@ jobs:
             cd out/target/product/tdgsi_arm64_ab/
             lz4 -9 system.img system.lz4
             
-            echo '--- 8. Exporting file path ---'
-            COMPRESSED_FILE_PATH=$(realpath system.lz4)
-            echo \"gsi_file_path=\$COMPRESSED_FILE_PATH\" >> \$CRAVE_OUTPUTS
-          "
-
-      - name: 'Upload system.lz4 to GoFile'
-        run: |
-          echo "Starting upload to GoFile..."
-          FILE_TO_UPLOAD="${{ steps.build_step.outputs.gsi_file_path }}"
-          crave cp "$FILE_TO_UPLOAD" .
-          FILENAME=$(basename "$FILE_TO_UPLOAD")
-          echo "File $FILENAME copied locally. Now uploading..."
-          
-          response=$(curl -fs -X POST \
-            -H "Authorization: Bearer lnVDBSuzPGzPzkA3je2EIKAqIccrW4ku" \
-            -F "file=@$FILENAME" \
-            https://upload.gofile.io/uploadfile)
+            echo '--- 8. Uploading to GoFile ---'
+            FILENAME='system.lz4'
+            echo \"Uploading \$FILENAME to GoFile...\"
+            response=\$(curl -fs -X POST -H 'Authorization: Bearer lnVDBSuzPGzPzkA3je2EIKAqIccrW4ku' -F \"file=@\$FILENAME\" https://upload.gofile.io/uploadfile)
             
-          echo "========================================================"
-          echo "GoFile API Response: $response"
-          download_page=$(echo "$response" | grep -oP '"downloadPage":\s*"\K[^"]+')
-          if [ -n "$download_page" ]; then
-            echo "✅ Upload Successful! Your download page is: $download_page"
-          else
-            echo "❌ Upload Failed! Check the API response above."
-            exit 1
-          fi
-          echo "========================================================"
+            echo '========================================================'
+            echo \"GoFile API Response: \$response\"
+            download_page=\$(echo \"\$response\" | grep -oP '\"downloadPage\":\s*\"\K[^\"]+')
+            if [ -n \"\$download_page\" ]; then
+              echo \"✅ Upload Successful! Download page: \$download_page\"
+            else
+              echo \"❌ Upload Failed!\"
+              exit 1
+            fi
+            echo '========================================================'
+          "
