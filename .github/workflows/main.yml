@@ -1,13 +1,12 @@
 # --------------------------------------------------------------------
-# |  سير عمل نهائي: بناء PixelOS GSI، تخصيصه، وضغطه، ورفعه تلقائيًا   |
+# |  سير عمل نهائي ومصحح: بناء PixelOS GSI ورفعه تلقائيًا           |
 # --------------------------------------------------------------------
 
-name: 'Build and Upload PixelOS GSI (Final)'
+name: 'Build and Upload PixelOS GSI (Corrected)'
 
 on:
   workflow_dispatch:
     inputs:
-      # فقط توكن Crave مطلوب كمدخل الآن
       crave_api_key:
         description: 'Your Crave.io API Key'
         required: true
@@ -23,8 +22,9 @@ jobs:
     timeout-minutes: 480
 
     steps:
+      # *** التغيير هنا: تم تصحيح اسم الإجراء ***
       - name: 'Setup Crave.io Environment'
-        uses: crave/action-setup-crave@v1.0.1
+        uses: crave-io/action-setup-crave@v1 # <-- الاسم الصحيح
         with:
           crave-api-key: ${{ github.event.inputs.crave_api_key }}
 
@@ -34,10 +34,8 @@ jobs:
           crave run --no-cache-upload -- \
           bash -c "
             set -e
-
-            echo '--- Installing LZ4 ---'
             sudo apt-get update && sudo apt-get install -y lz4
-
+            
             echo '--- 1. Initializing & Syncing Sources ---'
             mkdir -p ~/pixelos && cd ~/pixelos
             repo init --depth=1 -u https://github.com/PixelOS-AOSP/manifest.git -b sixteen --git-lfs
@@ -81,7 +79,6 @@ jobs:
           FILENAME=$(basename "$FILE_TO_UPLOAD")
           echo "File $FILENAME copied locally. Now uploading..."
           
-          # *** التغيير هنا: تم دمج توكن GoFile مباشرة في الأمر ***
           response=$(curl -fs -X POST \
             -H "Authorization: Bearer lnVDBSuzPGzPzkA3je2EIKAqIccrW4ku" \
             -F "file=@$FILENAME" \
