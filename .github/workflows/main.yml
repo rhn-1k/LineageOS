@@ -1,93 +1,99 @@
-name: Samsung Firmware Checker (Correct Server)
+# --------------------------------------------------------------------
+# |  سير عمل نهائي: بناء PixelOS GSI، تخصيصه، وضغطه، ورفعه تلقائيًا   |
+# --------------------------------------------------------------------
+
+name: 'Build and Upload PixelOS GSI (Final)'
 
 on:
   workflow_dispatch:
     inputs:
-      model:
-        description: 'Device Model (e.g., SM-A155F)'
+      # فقط توكن Crave مطلوب كمدخل الآن
+      crave_api_key:
+        description: 'Your Crave.io API Key'
         required: true
-        default: 'SM-A155F'
-      region:
-        description: 'Region Code / CSC (e.g., XSG, EUX, DBT)'
+      build_target:
+        description: 'GSI Build Target'
         required: true
-        default: 'XSG' # تم التغيير إلى XSG كقيمة افتراضية لأنها أكثر شيوعًا
+        default: 'pixelos_arm64_bgN_erofs-bp2a-userdebug'
 
 jobs:
-  check-firmware:
+  build_and_upload:
+    name: 'Build & Upload PixelOS GSI'
     runs-on: ubuntu-latest
+    timeout-minutes: 480
 
     steps:
-      - name: Check for latest firmware using correct server
-        id: check
-        run: |
-          MODEL="${{ github.event.inputs.model }}"
-          REGION="${{ github.event.inputs.region }}"
-          
-          echo "Requesting firmware for ${MODEL}/${REGION} from the correct server..."
-          
-          # استخدام علامات الاقتباس المفردة لتمرير الترويسات والبيانات بأمان
-          response_xml=$(curl -s -k -X POST \
-            -H 'Content-Type: application/xml;charset=UTF-8' \
-            -H 'Authorization: FUS nonce="", signature="", t="", type="", version=""' \
-            -d '<REQUEST><FUS><SERVICE><NAME>CHECK_FIRMWARE</NAME><VERSION>2.0</VERSION></SERVICE><CLIENT><TYPE>Smart Switch</TYPE><VERSION>4.3.24033_1</VERSION></CLIENT><DEVICE><MODEL_NAME>${{ github.event.inputs.model }}</MODEL_NAME><CSC>${{ github.event.inputs.region }}</CSC></DEVICE></FUS></REQUEST>' \
-            "https://neofus.samsung.com/NF_Download.do") # <-- اسم الخادم الصحيح والمؤكد
-            
-          echo "--- Server Response ---"
-          echo "${response_xml}"
-          echo "-----------------------"
-          
-          STATUS=$(echo "${response_xml}" | grep -oP '<STATUS>\K[^<]+')
-          if [ "${STATUS}" != "200" ]; then
-            ERROR_MESSAGE=$(echo "${response_xml}" | grep -oP '<MESSAGE>\K[^<]+')
-            echo "Error from Samsung server: ${ERROR_MESSAGE}"
-            # الخروج بنجاح (0) حتى لو لم يتم العثور على تحديث، لتجنب إظهار الخطأ في GitHub
-            exit 0
-          fi
-          
-          LATEST_VERSION=$(echo "${response_xml}" | grep -oP '<LATEST_VERSION>\K[^<]+')
-          FILE_NAME=$(echo "${response_xml}" | grep -oP '<FILE_NAME>\K[^<]+')
-          FILE_SIZE=$(echo "${response_xml}" | grep -oP '<FILE_SIZE>\K[^<]+')
-          
-          if [ -n "${LATEST_VERSION}" ] && [ -n "${FILE_NAME}" ]; then
-            DOWNLOAD_URL="http://fus.samsung.com/firmware/${FILE_NAME}"
-            
-            echo "Firmware found!"
-            echo "Version: ${LATEST_VERSION}"
-            echo "File Name: ${FILE_NAME}"
-            echo "File Size: ${FILE_SIZE} bytes"
-            echo "Download URL: ${DOWNLOAD_URL}"
-            
-            echo "url=${DOWNLOAD_URL}" >> $GITHUB_OUTPUT
-            echo "filename=${FILE_NAME}" >> $GITHUB_OUTPUT
-            echo "filesize=${FILE_SIZE}" >> $GITHUB_OUTPUT
-          else
-            echo "No firmware found for ${MODEL}/${REGION}."
-          fi
+      - name: 'Setup Crave.io Environment'
+        uses: crave/action-setup-crave@v1.0.1
+        with:
+          crave-api-key: ${{ github.event.inputs.crave_api_key }}
 
-      - name: Download and Upload to GoFile
-        if: steps.check.outputs.url != ''
+      - name: 'Run Build with Custom Default Setting'
+        id: build_step
         run: |
-          echo "Downloading ${{ steps.check.outputs.filename }}..."
-          wget -O "${{ steps.check.outputs.filename }}" "${{ steps.check.outputs.url }}"
-          sync
+          crave run --no-cache-upload -- \
+          bash -c "
+            set -e
+
+            echo '--- Installing LZ4 ---'
+            sudo apt-get update && sudo apt-get install -y lz4
+
+            echo '--- 1. Initializing & Syncing Sources ---'
+            mkdir -p ~/pixelos && cd ~/pixelos
+            repo init --depth=1 -u https://github.com/PixelOS-AOSP/manifest.git -b sixteen --git-lfs
+            git clone https://github.com/mytja/treble_manifest.git -b pixelos-sixteen .repo/local_manifests
+            repo sync -c -j$(nproc) --force-sync --no-clone-bundle --no-tags --optimized-fetch --prune
+
+            echo '--- 2. Applying Patches & Building Treble App ---'
+            if [ -d 'patches' ]; then ./patches/apply-all.sh .; fi
+            if [ -d 'treble_app' ]; then cd treble_app && ./build.sh release && cd ~/pixelos; else exit 1; fi
+
+            echo '--- 3. Setting default PHH properties (Disable Backpurse) ---'
+            DEVICE_MK_PATH='device/phh/treble/base.mk'
+            if [ -f \"\$DEVICE_MK_PATH\" ]; then
+              echo 'PRODUCT_PROPERTY_OVERRIDES += persist.sys.phh.disable_backpurse=true' >> \$DEVICE_MK_PATH
+            fi
+
+            echo '--- 4. Setting up build environment ---'
+            export USE_CCACHE=1 && export CCACHE_COMPRESS=1 && ccache -M 50G
+            source build/envsetup.sh
+            
+            echo '--- 5. Lunching build target ---'
+            lunch ${{ github.event.inputs.build_target }}
+
+            echo '--- 6. Starting compilation ---'
+            make systemimage -j$(nproc)
+
+            echo '--- 7. Compressing with LZ4 ---'
+            cd out/target/product/tdgsi_arm64_ab/
+            lz4 -9 system.img system.lz4
+            
+            echo '--- 8. Exporting file path ---'
+            COMPRESSED_FILE_PATH=$(realpath system.lz4)
+            echo \"gsi_file_path=\$COMPRESSED_FILE_PATH\" >> \$CRAVE_OUTPUTS
+          "
+
+      - name: 'Upload system.lz4 to GoFile'
+        run: |
+          echo "Starting upload to GoFile..."
+          FILE_TO_UPLOAD="${{ steps.build_step.outputs.gsi_file_path }}"
+          crave cp "$FILE_TO_UPLOAD" .
+          FILENAME=$(basename "$FILE_TO_UPLOAD")
+          echo "File $FILENAME copied locally. Now uploading..."
           
-          echo "Download complete. Verifying size..."
-          DOWNLOADED_SIZE=$(stat -c%s "${{ steps.check.outputs.filename }}")
-          EXPECTED_SIZE="${{ steps.check.outputs.filesize }}"
-          
-          if [ "$DOWNLOADED_SIZE" -ne "$EXPECTED_SIZE" ]; then
-            echo "Error: File size mismatch! Expected ${EXPECTED_SIZE}, but got ${DOWNLOADED_SIZE}."
-            exit 1
-          fi
-          
-          echo "Uploading to GoFile..."
-          response=$(curl -X POST \
+          # *** التغيير هنا: تم دمج توكن GoFile مباشرة في الأمر ***
+          response=$(curl -fs -X POST \
             -H "Authorization: Bearer lnVDBSuzPGzPzkA3je2EIKAqIccrW4ku" \
-            -F "file=@${{ steps.check.outputs.filename }}" \
+            -F "file=@$FILENAME" \
             https://upload.gofile.io/uploadfile)
             
           echo "========================================================"
           echo "GoFile API Response: $response"
           download_page=$(echo "$response" | grep -oP '"downloadPage":\s*"\K[^"]+')
-          echo "Your direct download page is: $download_page"
+          if [ -n "$download_page" ]; then
+            echo "✅ Upload Successful! Your download page is: $download_page"
+          else
+            echo "❌ Upload Failed! Check the API response above."
+            exit 1
+          fi
           echo "========================================================"
