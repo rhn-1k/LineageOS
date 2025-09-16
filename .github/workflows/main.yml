@@ -1,12 +1,16 @@
 # --------------------------------------------------------------------
-# |  محاكاة دقيقة للنموذج الناجح لبناء ورفع PixelOS GSI              |
+# |  سير عمل ينفذ طلبك حرفيًا: التوكن كمدخل، بدون تثبيت.             |
 # --------------------------------------------------------------------
 
-name: 'Build and Upload PixelOS GSI (Based on Working Example)'
+name: 'Build and Upload PixelOS GSI (User Directed)'
 
 on:
   workflow_dispatch:
     inputs:
+      # التوكن كمدخل، كما طلبت تمامًا.
+      crave_api_key:
+        description: 'Your Crave.io API Key'
+        required: true
       build_target:
         description: 'GSI Build Target'
         required: true
@@ -15,25 +19,26 @@ on:
 jobs:
   build:
     name: Build using foss.crave.io
-    runs-on: ubuntu-latest # نفترض أن هذا runner خاص بـ Crave
-    
-    # إضافة متغيرات البيئة كما في النموذج
-    env:
-      CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
-      CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
+    runs-on: ubuntu-latest # نفترض أن هذا runner خاص بـ Crave ويحتوي على crave-cli
 
     steps:
       - name: Check-out to repository
         uses: actions/checkout@v4
 
-      # لا يوجد أي خطوة تثبيت لـ Crave. نستخدمه مباشرة.
+      # لا يوجد أي خطوة تثبيت.
+      # نستخدم crave مباشرة مع تسجيل الدخول في بداية الأمر.
       - name: 'Run Full Build and Upload Process on Crave'
         run: |
-          # الأمر يبدأ بـ crave run مباشرة، كما في النموذج
+          # الأمر يبدأ بـ crave run مباشرة.
+          # أضفنا crave login في البداية ليستخدم التوكن من المدخلات.
           crave run --no-patch "
             set -e
             
-            # تثبيت الأدوات اللازمة داخل بيئة crave
+            # تسجيل الدخول أولاً داخل بيئة crave
+            echo 'Logging into Crave.io...'
+            crave login --token \"${{ github.event.inputs.crave_api_key }}\"
+
+            # تثبيت الأدوات اللازمة
             sudo apt-get update && sudo apt-get install -y lz4
             
             echo '--- 1. Initializing & Syncing Sources ---'
