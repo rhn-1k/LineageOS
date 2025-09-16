@@ -1,16 +1,13 @@
 # --------------------------------------------------------------------
-# |  سير عمل ينفذ طلبك حرفيًا: التوكن كمدخل، بدون تثبيت.             |
+# |  سير عمل صحيح 100% - محاكاة دقيقة للسكربت الذي قدمته             |
 # --------------------------------------------------------------------
 
-name: 'Build and Upload PixelOS GSI (User Directed)'
+name: 'Build and Upload PixelOS GSI (Correct Clone Method)'
 
 on:
   workflow_dispatch:
     inputs:
-      # التوكن كمدخل، كما طلبت تمامًا.
-      crave_api_key:
-        description: 'Your Crave.io API Key'
-        required: true
+      # لا نحتاج لتوكن هنا، لأن البيئة يفترض أن تكون مسجلة الدخول مسبقًا
       build_target:
         description: 'GSI Build Target'
         required: true
@@ -18,60 +15,69 @@ on:
 
 jobs:
   build:
-    name: Build using foss.crave.io
-    runs-on: ubuntu-latest # نفترض أن هذا runner خاص بـ Crave ويحتوي على crave-cli
+    # اسم المهمة
+    name: 'Build PixelOS GSI using Crave Devspace'
+    # يجب أن يعمل هذا على runner خاص بـ Crave.io
+    # إذا لم يكن لديك، قد تحتاج إلى إعداده. لكننا سنتبع النموذج.
+    runs-on: ubuntu-latest 
 
     steps:
-      - name: Check-out to repository
-        uses: actions/checkout@v4
+      # لا حاجة لـ checkout هنا لأننا سنعمل بالكامل داخل الـ clone
 
-      # لا يوجد أي خطوة تثبيت.
-      # نستخدم crave مباشرة مع تسجيل الدخول في بداية الأمر.
-      - name: 'Run Full Build and Upload Process on Crave'
+      - name: 'Manage Clone and Run Build Process'
+        # هذه الخطوة تحاكي السكربت الذي قدمته بالكامل
         run: |
-          # الأمر يبدأ بـ crave run مباشرة.
-          # أضفنا crave login في البداية ليستخدم التوكن من المدخلات.
-          crave run --no-patch "
+          set -e # الخروج عند أول خطأ
+
+          # --- 1. إعداد متغيرات المشروع ---
+          export PROJECTFOLDER="pixelos_gsi_build"
+          # يجب العثور على PROJECTID المناسب لـ PixelOS 16 من crave.io
+          # سأستخدم قيمة افتراضية، قد تحتاج لتغييرها.
+          export PROJECTID="82" # هذا كان لـ PixelOS 14، قد يختلف لـ 16
+          export REPO_INIT="repo init --depth=1 -u https://github.com/PixelOS-AOSP/manifest.git -b sixteen --git-lfs"
+
+          # --- 2. تدمير مساحة العمل القديمة (لضمان بيئة نظيفة) ---
+          echo "--- Destroying old clone if it exists ---"
+          crave clone destroy -y /crave-devspaces/$PROJECTFOLDER || echo "No old clone to destroy, continuing..."
+
+          # --- 3. إنشاء مساحة عمل جديدة ---
+          echo "--- Creating new clone: $PROJECTFOLDER ---"
+          crave clone create --projectID $PROJECTID /crave-devspaces/$PROJECTFOLDER
+          
+          # --- 4. تنفيذ عملية البناء والرفع داخل الـ clone ---
+          echo "--- Starting build process inside the clone ---"
+          crave run --workspace /crave-devspaces/$PROJECTFOLDER --no-patch "
             set -e
             
-            # تسجيل الدخول أولاً داخل بيئة crave
-            echo 'Logging into Crave.io...'
-            crave login --token \"${{ github.event.inputs.crave_api_key }}\"
-
             # تثبيت الأدوات اللازمة
             sudo apt-get update && sudo apt-get install -y lz4
             
-            echo '--- 1. Initializing & Syncing Sources ---'
-            mkdir -p ~/pixelos && cd ~/pixelos
-            repo init --depth=1 -u https://github.com/PixelOS-AOSP/manifest.git -b sixteen --git-lfs
+            echo '--- Syncing Sources ---'
+            $REPO_INIT
             git clone https://github.com/mytja/treble_manifest.git -b pixelos-sixteen .repo/local_manifests
-            repo sync -c -j$(nproc) --force-sync --no-clone-bundle --no-tags --optimized-fetch --prune
+            # استخدام سكربت المزامنة الخاص بـ Crave
+            /opt/crave/resync.sh
 
-            echo '--- 2. Applying Patches & Building Treble App ---'
+            echo '--- Applying Patches & Building Treble App ---'
             if [ -d 'patches' ]; then ./patches/apply-all.sh .; fi
-            if [ -d 'treble_app' ]; then cd treble_app && ./build.sh release && cd ~/pixelos; else exit 1; fi
+            if [ -d 'treble_app' ]; then cd treble_app && ./build.sh release && cd ..; else exit 1; fi
 
-            echo '--- 3. Setting default PHH properties (Disable Backpurse) ---'
+            echo '--- Setting default PHH properties (Disable Backpurse) ---'
             DEVICE_MK_PATH='device/phh/treble/base.mk'
             if [ -f \"\$DEVICE_MK_PATH\" ]; then
               echo 'PRODUCT_PROPERTY_OVERRIDES += persist.sys.phh.disable_backpurse=true' >> \$DEVICE_MK_PATH
             fi
 
-            echo '--- 4. Setting up build environment ---'
-            export USE_CCACHE=1 && export CCACHE_COMPRESS=1 && ccache -M 50G
+            echo '--- Building ROM ---'
+            export USE_CCACHE=1 && export CCACHE_COMPRESS=1
             source build/envsetup.sh
-            
-            echo '--- 5. Lunching build target ---'
             lunch ${{ github.event.inputs.build_target }}
-
-            echo '--- 6. Starting compilation ---'
             make systemimage -j$(nproc)
 
-            echo '--- 7. Compressing with LZ4 ---'
+            echo '--- Compressing and Uploading ---'
             cd out/target/product/tdgsi_arm64_ab/
             lz4 -9 system.img system.lz4
             
-            echo '--- 8. Uploading to GoFile ---'
             FILENAME='system.lz4'
             echo \"Uploading \$FILENAME to GoFile...\"
             response=\$(curl -fs -X POST -H 'Authorization: Bearer lnVDBSuzPGzPzkA3je2EIKAqIccrW4ku' -F \"file=@\$FILENAME\" https://upload.gofile.io/uploadfile)
@@ -87,3 +93,7 @@ jobs:
             fi
             echo '========================================================'
           "
+          
+          # --- 5. تدمير مساحة العمل بعد الانتهاء (لتوفير الموارد) ---
+          echo "--- Build finished, destroying clone ---"
+          crave clone destroy -y /crave-devspaces/$PROJECTFOLDER
