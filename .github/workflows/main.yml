@@ -1,16 +1,12 @@
 # --------------------------------------------------------------------
-# |  سير عمل صحيح مبني على نموذج المطورين مع استخدام المدخلات         |
+# |  محاكاة دقيقة للنموذج الناجح لبناء ورفع PixelOS GSI              |
 # --------------------------------------------------------------------
 
-name: 'Build and Upload PixelOS GSI (Correct Workflow with Inputs)'
+name: 'Build and Upload PixelOS GSI (Based on Working Example)'
 
 on:
   workflow_dispatch:
     inputs:
-      # إعادة توكن Crave كمدخل كما طلبت
-      crave_api_key:
-        description: 'Your Crave.io API Key'
-        required: true
       build_target:
         description: 'GSI Build Target'
         required: true
@@ -19,23 +15,21 @@ on:
 jobs:
   build:
     name: Build using foss.crave.io
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # نفترض أن هذا runner خاص بـ Crave
+    
+    # إضافة متغيرات البيئة كما في النموذج
+    env:
+      CRAVE_USERNAME: ${{ secrets.CRAVE_USERNAME }}
+      CRAVE_TOKEN: ${{ secrets.CRAVE_TOKEN }}
+
     steps:
       - name: Check-out to repository
         uses: actions/checkout@v4
 
-      # هذه الخطوة تستخدم سكربت التثبيت الرسمي والمؤكد
-      - name: 'Install and Configure Crave.io CLI'
-        run: |
-          echo "Running the official Crave.io install script..."
-          curl -sSL https://crave.io/install.sh | sudo bash
-          crave --version
-          echo "Logging into Crave.io..."
-          crave login --token "${{ github.event.inputs.crave_api_key }}"
-        
-      # الخطوة الرئيسية التي تنفذ كل شيء داخل بيئة Crave
+      # لا يوجد أي خطوة تثبيت لـ Crave. نستخدمه مباشرة.
       - name: 'Run Full Build and Upload Process on Crave'
         run: |
+          # الأمر يبدأ بـ crave run مباشرة، كما في النموذج
           crave run --no-patch "
             set -e
             
@@ -43,7 +37,6 @@ jobs:
             sudo apt-get update && sudo apt-get install -y lz4
             
             echo '--- 1. Initializing & Syncing Sources ---'
-            # استخدام مسار العمل داخل بيئة crave
             mkdir -p ~/pixelos && cd ~/pixelos
             repo init --depth=1 -u https://github.com/PixelOS-AOSP/manifest.git -b sixteen --git-lfs
             git clone https://github.com/mytja/treble_manifest.git -b pixelos-sixteen .repo/local_manifests
