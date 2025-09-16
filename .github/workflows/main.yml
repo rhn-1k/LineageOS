@@ -24,7 +24,7 @@ jobs:
     steps:
       # *** التغيير هنا: تم تصحيح اسم الإجراء ***
       - name: 'Setup Crave.io Environment'
-        uses: crave-io/action-setup-crave@v1 # <-- الاسم الصحيح
+        uses: Crave-io/action-setup-crave@v1 # <-- الاسم الصحيح
         with:
           crave-api-key: ${{ github.event.inputs.crave_api_key }}
 
