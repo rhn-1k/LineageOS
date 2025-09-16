@@ -1,8 +1,8 @@
 # --------------------------------------------------------------------
-# |  سير عمل نهائي ومصحح: بناء PixelOS GSI ورفعه تلقائيًا           |
+# |  سير عمل نهائي (الطريقة اليدوية): بناء PixelOS GSI ورفعه         |
 # --------------------------------------------------------------------
 
-name: 'Build and Upload PixelOS GSI (Corrected)'
+name: 'Build and Upload PixelOS GSI (Manual Setup)'
 
 on:
   workflow_dispatch:
@@ -22,15 +22,32 @@ jobs:
     timeout-minutes: 480
 
     steps:
-      # *** التغيير هنا: تم تصحيح اسم الإجراء ***
-      - name: 'Setup Crave.io Environment'
-        uses: Crave-io/action-setup-crave@v1 # <-- الاسم الصحيح
-        with:
-          crave-api-key: ${{ github.event.inputs.crave_api_key }}
+      # --- *** الخطوة الجديدة: إعداد Crave CLI يدويًا *** ---
+      - name: 'Manually Setup Crave.io CLI'
+        run: |
+          # 1. تنزيل أداة Crave CLI
+          echo "Downloading Crave CLI..."
+          curl -L "https://crave.io/api/v1/dl/crave-cli/linux-amd64" -o crave
+          
+          # 2. جعلها قابلة للتنفيذ
+          chmod +x crave
+          
+          # 3. نقلها إلى مسار النظام لسهولة الوصول
+          sudo mv crave /usr/local/bin/crave
+          
+          # 4. التحقق من التثبيت
+          crave --version
+          
+          # 5. تسجيل الدخول باستخدام التوكن
+          echo "Logging into Crave.io..."
+          crave login --token "${{ github.event.inputs.crave_api_key }}"
+        
+      # --- *** نهاية الخطوة الجديدة *** ---
 
       - name: 'Run Build with Custom Default Setting'
         id: build_step
         run: |
+          # لم نعد بحاجة إلى crave login هنا لأنه تم في الخطوة السابقة
           crave run --no-cache-upload -- \
           bash -c "
             set -e
