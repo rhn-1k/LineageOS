@@ -1,5 +1,5 @@
-# اسم الـ Workflow: Debug and Run Hydra (v14 - Final Fix)
-name: Debug and Run Hydra (v14)
+# اسم الـ Workflow: Debug and Run Hydra (v15 - Final Syntax Fix)
+name: Debug and Run Hydra (v15)
 
 on:
   workflow_dispatch:
@@ -11,44 +11,34 @@ on:
       duration:
         description: 'مدة الهجوم بالثواني'
         required: true
-        default: '120' # دقيقتان فقط للاختبار السريع
+        default: '120'
 
 jobs:
   single_attack_test:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Set up Python 3.9
-        uses: actions/setup-python@v3
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v3
         with:
           python-version: 3.9
 
-      # --- هذا هو الإصلاح ---
       - name: Install dependencies for ROOT
         run: |
-          echo "تثبيت المكتبات باستخدام sudo (بدون تحديث pip)..."
-          # لقد قمنا بإزالة سطر "sudo python3 -m pip install --upgrade pip"
           sudo pip3 install scapy aiodns
-          echo "تم تثبيت المكتبات بنجاح."
 
       - name: Prepare and Verify
         id: prepare
         run: |
-          echo "تعديل الكود بالمدخلات..."
           sed -i "s/TARGET_IP = .*/TARGET_IP = \"${{ github.event.inputs.target_ip }}\"/" hydra.py
           sed -i "s/DURATION = .*/DURATION = ${{ github.event.inputs.duration }}/" hydra.py
-          
-          echo "التحقق من وجود scapy لمستخدم root..."
-          sudo python3 -c "import scapy; print('Scapy is available for root!')"
           
           TIMEOUT_MINS=$(( (${{ github.event.inputs.duration }} / 60) + 2 ))
           echo "timeout=$TIMEOUT_MINS" >> $GITHUB_OUTPUT
 
       - name: Launch Hydra and Monitor
-        timeout-minutes: ${{ steps.prepare.outputs.timeout }}
+        # استخدام المخرج من الخطوة السابقة لضمان الصياغة الصحيحة
+        timeout-minutes: ${{ fromJson(steps.prepare.outputs.timeout) }}
         run: |
           echo "بدء تشغيل hydra.py الآن..."
           sudo python3 -u hydra.py
