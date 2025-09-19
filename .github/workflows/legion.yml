@@ -1,5 +1,5 @@
-# اسم الـ Workflow: Legion - Batch Attack Strategy (v6 - Final)
-name: Legion - Batch Attack (v6)
+# اسم الـ Workflow: Legion - Batch Attack Strategy (v9 - Token as Input)
+name: Legion - Batch Attack (v9)
 
 on:
   workflow_dispatch:
@@ -20,9 +20,12 @@ on:
         description: 'حجم الدفعة الواحدة (يجب أن يكون أقل من 20)'
         required: true
         default: '19'
+      # --- الإضافة الجديدة هنا ---
+      pat:
+        description: 'Your Personal Access Token (PAT)'
+        required: true
 
 jobs:
-  # المهمة الأولى: حساب عدد الدفعات
   calculate_batches:
     runs-on: ubuntu-latest
     outputs:
@@ -34,41 +37,33 @@ jobs:
           TOTAL=${{ github.event.inputs.total_soldiers }}
           SIZE=${{ github.event.inputs.batch_size }}
           NUM_BATCHES=$(( (TOTAL + SIZE - 1) / SIZE ))
-          echo "إجمالي الجنود: $TOTAL, حجم الدفعة: $SIZE, عدد الدفعات المحسوب: $NUM_BATCHES"
-          
           MATRIX="{\"include\":["
           for (( i=0; i<$NUM_BATCHES; i++ )); do
             MATRIX+="{\"batch_number\":$i},"
           done
           MATRIX=$(echo $MATRIX | sed 's/,$//')
           MATRIX+="]}"
-          
-          echo "المصفوفة الناتجة: $MATRIX"
           echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
 
-  # المهمة الثانية: قائد الفيلق الذي ينسق الدفعات
   legion_commander:
     needs: calculate_batches
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.calculate_batches.outputs.batch_matrix) }}
-
     steps:
-      # --- هذا هو الإصلاح ---
-      # تم نقل العملية الحسابية من 'name' إلى 'run'
       - name: Announce and Dispatch Batch
         run: |
-          # إجراء العملية الحسابية هنا باستخدام bash
           BATCH_NUM=$(( ${{ matrix.batch_number }} + 1 ))
           echo "===== بدء الدفعة رقم: $BATCH_NUM ====="
         
-      # استخدام action منفصل للإرسال
+      # --- التعديل هنا: استخدام التوكن من المدخلات ---
       - name: Dispatch Soldier Batch
         uses: benc-uk/workflow-dispatch@v1
         with:
           workflow: soldier.yml
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # استخدام التوكن الذي تم إدخاله يدويًا عند التشغيل
+          token: ${{ github.event.inputs.pat }}
           inputs: >
             {
               "target_ip": "${{ github.event.inputs.target_ip }}",
