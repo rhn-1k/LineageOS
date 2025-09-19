@@ -1,5 +1,5 @@
-# اسم الـ Workflow: Legion - Batch Attack Strategy (v5 - Corrected)
-name: Legion - Batch Attack (v5)
+# اسم الـ Workflow: Legion - Batch Attack Strategy (v6 - Final)
+name: Legion - Batch Attack (v6)
 
 on:
   workflow_dispatch:
@@ -26,53 +26,48 @@ jobs:
   calculate_batches:
     runs-on: ubuntu-latest
     outputs:
-      # المخرج الذي سيحتوي على مصفوفة أرقام الدفعات
       batch_matrix: ${{ steps.generate-matrix.outputs.matrix }}
     steps:
       - name: Calculate number of batches
         id: generate-matrix
         run: |
-          # إجراء العمليات الحسابية باستخدام bash
           TOTAL=${{ github.event.inputs.total_soldiers }}
           SIZE=${{ github.event.inputs.batch_size }}
-          # معادلة لحساب عدد الدفعات مع التقريب للأعلى
           NUM_BATCHES=$(( (TOTAL + SIZE - 1) / SIZE ))
           echo "إجمالي الجنود: $TOTAL, حجم الدفعة: $SIZE, عدد الدفعات المحسوب: $NUM_BATCHES"
           
-          # إنشاء مصفوفة JSON بناءً على العدد المحسوب
           MATRIX="{\"include\":["
           for (( i=0; i<$NUM_BATCHES; i++ )); do
             MATRIX+="{\"batch_number\":$i},"
           done
-          # إزالة الفاصلة الأخيرة وإغلاق المصفوفة
           MATRIX=$(echo $MATRIX | sed 's/,$//')
           MATRIX+="]}"
           
           echo "المصفوفة الناتجة: $MATRIX"
-          # حفظ المصفوفة في مخرج المهمة
           echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
 
   # المهمة الثانية: قائد الفيلق الذي ينسق الدفعات
   legion_commander:
-    # تعتمد على المهمة الأولى للحصول على المصفوفة الصحيحة
     needs: calculate_batches
     runs-on: ubuntu-latest
-    
-    # استراتيجية المصفوفة لإنشاء الدفعات
     strategy:
       fail-fast: false
-      # استخدام المصفوفة التي تم إنشاؤها في المهمة السابقة
       matrix: ${{ fromJson(needs.calculate_batches.outputs.batch_matrix) }}
 
     steps:
-      - name: Announce Batch ${{ matrix.batch_number + 1 }}
+      # --- هذا هو الإصلاح ---
+      # تم نقل العملية الحسابية من 'name' إلى 'run'
+      - name: Announce and Dispatch Batch
         run: |
-          echo "===== بدء الدفعة رقم: ${{ matrix.batch_number + 1 }} ====="
-
+          # إجراء العملية الحسابية هنا باستخدام bash
+          BATCH_NUM=$(( ${{ matrix.batch_number }} + 1 ))
+          echo "===== بدء الدفعة رقم: $BATCH_NUM ====="
+        
+      # استخدام action منفصل للإرسال
       - name: Dispatch Soldier Batch
         uses: benc-uk/workflow-dispatch@v1
         with:
-          workflow: soldier.yml # اسم ملف workflow الجنود
+          workflow: soldier.yml
           token: ${{ secrets.GITHUB_TOKEN }}
           inputs: >
             {
