@@ -1,5 +1,5 @@
-# اسم الـ Workflow: Debug and Run Hydra (v12 - Simplest)
-name: Debug and Run Hydra (v12)
+# اسم الـ Workflow: Debug and Run Hydra (v13 - Corrected Syntax)
+name: Debug and Run Hydra (v13)
 
 on:
   workflow_dispatch:
@@ -14,7 +14,6 @@ on:
         default: '120' # دقيقتان فقط للاختبار السريع
 
 jobs:
-  # مهمة واحدة فقط، بدون أي استراتيجيات
   single_attack_test:
     runs-on: ubuntu-latest
     
@@ -29,12 +28,11 @@ jobs:
 
       - name: Install dependencies for ROOT
         run: |
-          echo "تثبيت المكتبات باستخدام sudo..."
           sudo python3 -m pip install --upgrade pip
           sudo pip3 install scapy aiodns
-          echo "تم تثبيت المكتبات."
 
       - name: Prepare and Verify
+        id: prepare # أضفنا ID لهذه الخطوة
         run: |
           echo "تعديل الكود بالمدخلات..."
           sed -i "s/TARGET_IP = .*/TARGET_IP = \"${{ github.event.inputs.target_ip }}\"/" hydra.py
@@ -49,10 +47,16 @@ jobs:
           sudo python3 --version
           echo "التحقق من وجود scapy لمستخدم root..."
           sudo python3 -c "import scapy; print('Scapy is available for root!')"
+          
+          # --- هذا هو الإصلاح ---
+          # حساب مدة الـ timeout هنا وحفظها في مخرج
+          TIMEOUT_MINS=$(( (${{ github.event.inputs.duration }} / 60) + 2 ))
+          echo "مدة الـ timeout المحسوبة: $TIMEOUT_MINS دقائق"
+          echo "timeout=$TIMEOUT_MINS" >> $GITHUB_OUTPUT
 
       - name: Launch Hydra and Monitor
-        # ضمان استمرار المهمة للمدة المطلوبة + دقيقة
-        timeout-minutes: ${{ (github.event.inputs.duration / 60) + 1 }}
+        # استخدام المخرج من الخطوة السابقة
+        timeout-minutes: ${{ steps.prepare.outputs.timeout }}
         run: |
           echo "بدء تشغيل hydra.py الآن..."
           # التشغيل المباشر مع طباعة المخرجات والأخطاء مباشرة في سجل المهمة
