@@ -42,19 +42,17 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Clone Crave Builder Scripts
-        run: git clone https://github.com/sounddrill31/crave_aosp_builder.git crave_builder
-
-      - name: Prepare and Run Build Script
+      - name: Clone, Prepare, and Run Build
         run: |
           #!/bin/bash
           set -e
 
-          # --- إعداد متغيرات البيئة ---
+          echo "--- Cloning Crave Builder Scripts ---"
+          git clone https://github.com/sounddrill31/crave_aosp_builder.git crave_builder
+
           export CRAVE_USERNAME=${{ github.event.inputs.crave_username }}
           export CRAVE_TOKEN=${{ github.event.inputs.crave_token }}
 
-          # --- إعداد سكربت البناء المخصص ---
           BUILD_SCRIPT_CONTENT=$(cat <<'EOF'
           #!/bin/bash
           set -e
@@ -108,6 +106,5 @@ jobs:
           EOF
           )
 
-          # --- تشغيل السكربت الرئيسي للمطور مع تمرير سكربتنا المخصص ---
           echo "$BUILD_SCRIPT_CONTENT" > custom_build_script.sh
           bash crave_builder/scripts/crave.sh < custom_build_script.sh
