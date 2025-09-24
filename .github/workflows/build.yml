@@ -1,0 +1,108 @@
+name: Build and Upload Infinity-X
+
+on:
+  workflow_dispatch:
+    inputs:
+      crave_username:
+        description: 'Your Crave.io Username'
+        required: true
+      crave_token:
+        description: 'Your Crave.io Token (WARNING: may be visible in logs)'
+        required: true
+      device_codename:
+        description: 'Device codename (e.g., violet, lisa). Leave as is for GSI.'
+        required: true
+        default: 'gsi_arm64_ab'
+      maintainer_name:
+        description: 'Your name to be shown as the maintainer'
+        required: false
+        default: 'Anonymous'
+      include_gapps:
+        description: 'Include Google Apps in the build?'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      has_udfps:
+        description: 'Does the target device have an Under-Display Fingerprint Sensor?'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Crave Build
+        uses: sounddrill31/crave-action@v1
+        with:
+          username: ${{ github.event.inputs.crave_username }}
+          token: ${{ github.event.inputs.crave_token }}
+          script: |
+            #!/bin/bash
+            set -e
+
+            # ==================================================================
+            #            إعداد متغيرات البناء
+            # ==================================================================
+            export INFINITY_BUILD_TYPE="UNOFFICIAL"
+            export INFINITY_MAINTAINER="${{ github.event.inputs.maintainer_name }}"
+            export TARGET_HAS_UDFPS="${{ github.event.inputs.has_udfps }}"
+            export WITH_GAPPS="${{ github.event.inputs.include_gapps }}"
+            export BUILD_VARIANT="userdebug"
+            export DEVICE_CODENAME="${{ github.event.inputs.device_codename }}"
+
+            # ==================================================================
+            #                       بدء عملية البناء
+            # ==================================================================
+            echo "--- Build Configuration ---"
+            echo "Device: ${DEVICE_CODENAME}, GApps: ${WITH_GAPPS}, Maintainer: ${INFINITY_MAINTAINER}"
+            
+            echo "--- Initializing & Syncing Source ---"
+            repo init --depth=1 --no-repo-verify --git-lfs -u https://github.com/ProjectInfinity-X/manifest -b 16 -g default,-mips,-darwin,-notdefault
+            repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j$(nproc --all)
+
+            echo "--- Cloning & Applying Patches ---"
+            git clone https://github.com/Doze-off/patches.git -b patches-15 patches
+            bash patches/apply-patches.sh $(pwd) || true
+            
+            echo "--- Starting Compilation ---"
+            source build/envsetup.sh
+            lunch infinity_${DEVICE_CODENAME}-${BUILD_VARIANT}
+            m bacon -j$(nproc --all)
+
+            # ==================================================================
+            #            رفع الروم إلى GoFile (بالطريقة الصحيحة)
+            # ==================================================================
+            echo "--- Uploading ROM to GoFile ---"
+            
+            ROM_PATH=$(find out/target/product/${DEVICE_CODENAME}/ -name "*.zip" | head -n 1)
+            
+            if [ -z "$ROM_PATH" ]; then
+              echo "!!! ERROR: ROM file not found!"
+              exit 1
+            fi
+            
+            echo "Found ROM at: ${ROM_PATH}"
+            
+            SERVER=$(curl -s https://api.gofile.io/getServer | jq -r '.data.server')
+            echo "Using GoFile server: ${SERVER}"
+            
+            # --- أمر الرفع المصحح ---
+            # استخدام -F "token=..." بدلاً من -H "Authorization..."
+            UPLOAD_RESPONSE=$(curl -F "file=@${ROM_PATH}" -F "token=E29ro0ueg1dXX7CHmJSdrO9puOTUMREk" https://${SERVER}.gofile.io/uploadFile)
+            
+            echo "--- GoFile Upload Response ---"
+            echo "${UPLOAD_RESPONSE}"
+            
+            DOWNLOAD_LINK=$(echo "${UPLOAD_RESPONSE}" | jq -r '.data.downloadPage')
+            echo "======================================="
+            echo "         !!! BUILD FINISHED !!!"
+            echo "======================================="
+            echo "Your download link is: ${DOWNLOAD_LINK}"
+            echo "======================================="
