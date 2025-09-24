@@ -43,7 +43,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Crave Build
-        uses: sounddrill31/crave_aosp_builder@v1.0
+        # --- السطر المصحح (باستخدام إصدار موجود فعلاً) ---
+        uses: sounddrill31/crave_aosp_builder@v1.3
         with:
           username: ${{ github.event.inputs.crave_username }}
           token: ${{ github.event.inputs.crave_token }}
