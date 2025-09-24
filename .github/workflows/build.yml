@@ -12,7 +12,7 @@ on:
       device_codename:
         description: 'Device codename'
         required: true
-        default: 'a15'
+        default: 'A155F'
       maintainer_name:
         description: 'Your name to be shown as the maintainer'
         required: true
@@ -45,7 +45,8 @@ jobs:
       - name: Install Dependencies & Crave CLI
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y curl git-core gnupg flex bison build-essential zip unzip zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 libncurses5 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig jq
+          # --- السطر المصحح: استخدام أسماء الحزم الصحيحة لـ Ubuntu 22.04 ---
+          sudo apt-get install -y curl git-core gnupg flex bison build-essential zip unzip zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 libncurses6 lib32ncurses-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig jq
           mkdir -p ${HOME}/bin/
           curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
           mv ${PWD}/crave ${HOME}/bin/
