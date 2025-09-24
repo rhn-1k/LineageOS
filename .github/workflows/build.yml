@@ -1,4 +1,4 @@
-name: Infinity-X Builder
+name: Infinity-X Flexible Builder
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
         description: 'Your Crave.io Username'
         required: true
       crave_token:
-        description: 'Your Crave.io Token (Paste it here)'
+        description: 'Your Crave.io Token'
         required: true
       device_codename:
         description: 'Device codename'
@@ -42,69 +42,72 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Clone, Prepare, and Run Build
+      - name: Install Dependencies & Crave CLI
         run: |
-          #!/bin/bash
-          set -e
+          sudo apt-get update -y
+          sudo apt-get install -y curl git-core gnupg flex bison build-essential zip unzip zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 libncurses5 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig jq
+          mkdir -p ${HOME}/bin/
+          curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
+          mv ${PWD}/crave ${HOME}/bin/
+          sudo ln -sf ${HOME}/bin/crave /usr/bin/crave
 
-          echo "--- Cloning Crave Builder Scripts ---"
-          git clone https://github.com/sounddrill31/crave_aosp_builder.git crave_builder
+      - name: Run The Build on Crave.io
+        env:
+          CRAVE_USERNAME: ${{ github.event.inputs.crave_username }}
+          CRAVE_TOKEN: ${{ github.event.inputs.crave_token }}
+          MAINTAINER: ${{ github.event.inputs.maintainer_name }}
+          DEVICE: ${{ github.event.inputs.device_codename }}
+          GAPPS: ${{ github.event.inputs.include_gapps }}
+          UDFPS: ${{ github.event.inputs.has_udfps }}
+          ABOUT_PROPS: ${{ github.event.inputs.about_phone_props }}
+        run: |
+          crave run --no-patch -- "
+            set -e
 
-          export CRAVE_USERNAME=${{ github.event.inputs.crave_username }}
-          export CRAVE_TOKEN=${{ github.event.inputs.crave_token }}
+            export INFINITY_BUILD_TYPE='UNOFFICIAL'
+            export INFINITY_MAINTAINER='${MAINTAINER}'
+            export TARGET_HAS_UDFPS='${UDFPS}'
+            export WITH_GAPPS='${GAPPS}'
+            export BUILD_VARIANT='userdebug'
+            export DEVICE_CODENAME='${DEVICE}'
+            export BUILD_USERNAME='${{ github.actor }}'
+            export BUILD_HOSTNAME='crave'
 
-          BUILD_SCRIPT_CONTENT=$(cat <<'EOF'
-          #!/bin/bash
-          set -e
+            echo '--- Initializing & Syncing Source ---'
+            repo init --depth=1 --no-repo-verify --git-lfs -u https://github.com/ProjectInfinity-X/manifest -b 15 -g default,-mips,-darwin,-notdefault
+            /opt/crave/resync.sh
 
-          export INFINITY_BUILD_TYPE="UNOFFICIAL"
-          export INFINITY_MAINTAINER="${{ github.event.inputs.maintainer_name }}"
-          export TARGET_HAS_UDFPS="${{ github.event.inputs.has_udfps }}"
-          export WITH_GAPPS="${{ github.event.inputs.include_gapps }}"
-          export BUILD_VARIANT="userdebug"
-          export DEVICE_CODENAME="${{ github.event.inputs.device_codename }}"
+            echo '--- Cloning Treble Adapter for Custom Props ---'
+            git clone https://github.com/ponces/treble_adapter -b master treble_adapter
+            if [ -n \"\${ABOUT_PROPS}\" ]; then
+              IFS=';' read -r market_name soc_name battery_info display_info camera_info <<< \"\${ABOUT_PROPS}\"
+              PROPS_FILE='treble_adapter/system.prop'
+              echo '--- Creating custom system properties ---'
+              echo \"ro.product.marketname=\$market_name\" > \${PROPS_FILE}
+              echo \"ro.infinity.soc=\$soc_name\" >> \${PROPS_FILE}
+              echo \"ro.infinity.battery=\$battery_info\" >> \${PROPS_FILE}
+              echo \"ro.infinity.display=\$display_info\" >> \${PROPS_FILE}
+              echo \"ro.infinity.camera=\$camera_info\" >> \${PROPS_FILE}
+            fi
 
-          echo "--- Initializing & Syncing Source ---"
-          repo init --depth=1 --no-repo-verify --git-lfs -u https://github.com/ProjectInfinity-X/manifest -b 15 -g default,-mips,-darwin,-notdefault
-          repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j$(nproc --all)
+            echo '--- Cloning & Applying Patches ---'
+            git clone https://github.com/Doze-off/patches.git -b patches-15 patches
+            bash patches/apply-patches.sh \$(pwd) || true
+            
+            echo '--- Starting Compilation ---'
+            source build/envsetup.sh
+            lunch infinity_\${DEVICE_CODENAME}-\${BUILD_VARIANT}
+            m bacon -j\$(nproc --all)
 
-          echo "--- Cloning Treble Adapter for Custom Props ---"
-          git clone https://github.com/ponces/treble_adapter -b master treble_adapter
-
-          PROPS_STRING="${{ github.event.inputs.about_phone_props }}"
-          if [ -n "$PROPS_STRING" ]; then
-            IFS=';' read -r market_name soc_name battery_info display_info camera_info <<< "$PROPS_STRING"
-            PROPS_FILE="treble_adapter/system.prop"
-            echo "--- Creating custom system properties ---"
-            echo "ro.product.marketname=$market_name" > ${PROPS_FILE}
-            echo "ro.infinity.soc=$soc_name" >> ${PROPS_FILE}
-            echo "ro.infinity.battery=$battery_info" >> ${PROPS_FILE}
-            echo "ro.infinity.display=$display_info" >> ${PROPS_FILE}
-            echo "ro.infinity.camera=$camera_info" >> ${PROPS_FILE}
-          fi
-
-          echo "--- Cloning & Applying Patches ---"
-          git clone https://github.com/Doze-off/patches.git -b patches-15 patches
-          bash patches/apply-patches.sh $(pwd) || true
-          
-          echo "--- Starting Compilation ---"
-          source build/envsetup.sh
-          lunch infinity_${DEVICE_CODENAME}-${BUILD_VARIANT}
-          m bacon -j$(nproc --all)
-
-          echo "--- Uploading ROM to GoFile ---"
-          ROM_PATH=$(find out/target/product/${DEVICE_CODENAME}/ -name "*.zip" | head -n 1)
-          if [ -z "$ROM_PATH" ]; then echo "!!! ERROR: ROM file not found!"; exit 1; fi
-          SERVER=$(curl -s https://api.gofile.io/getServer | jq -r '.data.server')
-          UPLOAD_RESPONSE=$(curl -F "file=@${ROM_PATH}" -F "token=E29ro0ueg1dXX7CHmJSdrO9puOTUMREk" https://${SERVER}.gofile.io/uploadFile)
-          DOWNLOAD_LINK=$(echo "${UPLOAD_RESPONSE}" | jq -r '.data.downloadPage')
-          echo "======================================="
-          echo "         !!! BUILD FINISHED !!!"
-          echo "======================================="
-          echo "Your download link is: ${DOWNLOAD_LINK}"
-          echo "======================================="
-          EOF
-          )
-
-          echo "$BUILD_SCRIPT_CONTENT" > custom_build_script.sh
-          bash crave_builder/scripts/crave.sh < custom_build_script.sh
+            echo '--- Uploading ROM to GoFile ---'
+            ROM_PATH=\$(find out/target/product/\${DEVICE_CODENAME}/ -name '*.zip' | head -n 1)
+            if [ -z \"\$ROM_PATH\" ]; then echo '!!! ERROR: ROM file not found!'; exit 1; fi
+            SERVER=\$(curl -s https://api.gofile.io/getServer | jq -r '.data.server')
+            UPLOAD_RESPONSE=\$(curl -F \"file=@\$ROM_PATH\" -F \"token=E29ro0ueg1dXX7CHmJSdrO9puOTUMREk\" https://\${SERVER}.gofile.io/uploadFile)
+            DOWNLOAD_LINK=\$(echo \"\$UPLOAD_RESPONSE\" | jq -r '.data.downloadPage')
+            echo '======================================='
+            echo '         !!! BUILD FINISHED !!!'
+            echo '======================================='
+            echo \"Your download link is: \${DOWNLOAD_LINK}\"
+            echo '======================================='
+          "
