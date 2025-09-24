@@ -42,6 +42,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
       - name: Install Dependencies & Crave CLI
         run: |
           sudo apt-get update -y
@@ -51,7 +54,7 @@ jobs:
           mv ${PWD}/crave ${HOME}/bin/
           sudo ln -sf ${HOME}/bin/crave /usr/bin/crave
 
-      - name: Clone Repo, Prepare Config, and Run Build
+      - name: Prepare Config and Run Build
         env:
           CRAVE_USERNAME: ${{ github.event.inputs.crave_username }}
           CRAVE_TOKEN: ${{ github.event.inputs.crave_token }}
@@ -61,14 +64,8 @@ jobs:
           UDFPS: ${{ github.event.inputs.has_udfps }}
           ABOUT_PROPS: ${{ github.event.inputs.about_phone_props }}
         run: |
-          # --- الخطوة الجديدة والمهمة: استنساخ المستودع والدخول إليه ---
-          git clone https://github.com/${{ github.repository }}.git build_repo
-          cd build_repo
-
-          # --- إعداد ملف crave.conf داخل المستودع ---
           echo "{\"username\": \"${CRAVE_USERNAME}\", \"Authorization\": \"${CRAVE_TOKEN}\"}" > crave.conf
 
-          # --- الآن، قم بتشغيل crave run من داخل المستودع ---
           crave run --no-patch -- "
             set -e
 
