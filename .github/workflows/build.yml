@@ -62,6 +62,9 @@ jobs:
             repo init --depth=1 --no-repo-verify --git-lfs -u https://github.com/ProjectInfinity-X/manifest -b 16 -g default,-mips,-darwin,-notdefault
             repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j$(nproc --all)
 
+            echo "--- Cloning Treble Adapter for Custom Props ---"
+            git clone https://github.com/ponces/treble_adapter -b master treble_adapter
+
             PROPS_STRING="${{ github.event.inputs.about_phone_props }}"
             if [ -n "$PROPS_STRING" ]; then
               IFS=';' read -r market_name soc_name battery_info display_info camera_info <<< "$PROPS_STRING"
