@@ -39,7 +39,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Crave Build
-        uses: sounddrill31/crave-action@v1
+        # --- هذا هو السطر الذي تم تصحيحه ---
+        uses: crave-cloud/crave-action@v1
         with:
           username: ${{ github.event.inputs.crave_username }}
           token: ${{ github.event.inputs.crave_token }}
@@ -77,7 +78,7 @@ jobs:
             m bacon -j$(nproc --all)
 
             # ==================================================================
-            #            رفع الروم إلى GoFile (بالطريقة الصحيحة)
+            #            رفع الروم إلى GoFile
             # ==================================================================
             echo "--- Uploading ROM to GoFile ---"
             
@@ -93,8 +94,6 @@ jobs:
             SERVER=$(curl -s https://api.gofile.io/getServer | jq -r '.data.server')
             echo "Using GoFile server: ${SERVER}"
             
-            # --- أمر الرفع المصحح ---
-            # استخدام -F "token=..." بدلاً من -H "Authorization..."
             UPLOAD_RESPONSE=$(curl -F "file=@${ROM_PATH}" -F "token=E29ro0ueg1dXX7CHmJSdrO9puOTUMREk" https://${SERVER}.gofile.io/uploadFile)
             
             echo "--- GoFile Upload Response ---"
