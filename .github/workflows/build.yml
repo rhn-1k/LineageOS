@@ -1,4 +1,4 @@
-name: Infinity-X Flexible Builder
+name: Infinity-X Final Builder
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ on:
       device_codename:
         description: 'Device codename'
         required: true
-        default: 'A155F'
+        default: 'a15'
       maintainer_name:
         description: 'Your name to be shown as the maintainer'
         required: true
@@ -45,14 +45,13 @@ jobs:
       - name: Install Dependencies & Crave CLI
         run: |
           sudo apt-get update -y
-          # --- السطر المصحح: استخدام أسماء الحزم الصحيحة لـ Ubuntu 22.04 ---
           sudo apt-get install -y curl git-core gnupg flex bison build-essential zip unzip zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 libncurses6 lib32ncurses-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig jq
           mkdir -p ${HOME}/bin/
           curl -s https://raw.githubusercontent.com/accupara/crave/master/get_crave.sh | bash -s --
           mv ${PWD}/crave ${HOME}/bin/
           sudo ln -sf ${HOME}/bin/crave /usr/bin/crave
 
-      - name: Run The Build on Crave.io
+      - name: Clone Repo, Prepare Config, and Run Build
         env:
           CRAVE_USERNAME: ${{ github.event.inputs.crave_username }}
           CRAVE_TOKEN: ${{ github.event.inputs.crave_token }}
@@ -62,6 +61,14 @@ jobs:
           UDFPS: ${{ github.event.inputs.has_udfps }}
           ABOUT_PROPS: ${{ github.event.inputs.about_phone_props }}
         run: |
+          # --- الخطوة الجديدة والمهمة: استنساخ المستودع والدخول إليه ---
+          git clone https://github.com/${{ github.repository }}.git build_repo
+          cd build_repo
+
+          # --- إعداد ملف crave.conf داخل المستودع ---
+          echo "{\"username\": \"${CRAVE_USERNAME}\", \"Authorization\": \"${CRAVE_TOKEN}\"}" > crave.conf
+
+          # --- الآن، قم بتشغيل crave run من داخل المستودع ---
           crave run --no-patch -- "
             set -e
 
