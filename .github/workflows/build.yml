@@ -43,8 +43,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Crave Build
-        # --- السطر المصحح (باستخدام إصدار موجود فعلاً) ---
-        uses: sounddrill31/crave_aosp_builder@v1.3
+        # --- السطر المصحح: استخدام الفرع الصحيح 'main' ---
+        uses: sounddrill31/crave_aosp_builder@main
         with:
           username: ${{ github.event.inputs.crave_username }}
           token: ${{ github.event.inputs.crave_token }}
@@ -60,7 +60,7 @@ jobs:
             export DEVICE_CODENAME="${{ github.event.inputs.device_codename }}"
 
             echo "--- Initializing & Syncing Source ---"
-            repo init --depth=1 --no-repo-verify --git-lfs -u https://github.com/ProjectInfinity-X/manifest -b 16 -g default,-mips,-darwin,-notdefault
+            repo init --depth=1 --no-repo-verify --git-lfs -u https://github.com/ProjectInfinity-X/manifest -b 15 -g default,-mips,-darwin,-notdefault
             repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j$(nproc --all)
 
             echo "--- Cloning Treble Adapter for Custom Props ---"
